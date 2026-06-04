@@ -1,0 +1,22 @@
+# SSH keys — NEVER commit private keys
+**/id_rsa
+**/id_ed25519
+**/*.pem
+**/*.key
+
+# Ansible
+*.retry
+.vault_pass
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+.env.local

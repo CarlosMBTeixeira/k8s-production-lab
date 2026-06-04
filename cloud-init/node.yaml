@@ -1,0 +1,32 @@
+#cloud-config
+# Cloud-init template for Kubernetes lab nodes
+# Applied at first boot via: multipass launch --cloud-init cloud-init/node.yaml
+
+hostname: CHANGE_PER_NODE
+
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: sudo
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINKkl8bQ/AokcBBBf6KIdDE1nDWpOX/auyyCpdibXSdl k8slab
+
+# Disable swap (required for Kubernetes)
+runcmd:
+  - swapoff -a
+  - sed -i '/swap/s/^/#/' /etc/fstab
+
+# Keep packages up to date on first boot
+package_update: true
+package_upgrade: true
+
+# Base packages useful for all nodes
+packages:
+  - curl
+  - wget
+  - htop
+  - net-tools
+  - vim
+  - jq
