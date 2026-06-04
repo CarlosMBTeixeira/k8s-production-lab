@@ -20,3 +20,4 @@ Thumbs.db
 # Local environment
 .env
 .env.local
+github_token.txt
