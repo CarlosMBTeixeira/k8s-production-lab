@@ -96,3 +96,113 @@ directly to `iptables-nft` on every WSL2 start. The script is registered
 via `/etc/wsl.conf`:
 
 ```ini
+[boot]
+systemd = true
+command = "/usr/local/sbin/multipass-net.sh"
+```
+
+The script is idempotent: it uses `iptables -C` to check rule existence
+before adding, so repeated executions do not duplicate rules.
+
+**Trade-offs accepted:**
+- Lab-local fix. The script hardcodes the subnet `10.163.24.0/24`, which
+  is what Multipass assigned on this machine. Not portable to a different
+  host without adjustment.
+- Acceptable since this lab runs on a single host. Documented here so
+  future-me knows where to look if the network silently breaks.
+
+---
+
+## ADR-004: systemd required in WSL2
+
+**Date:** 2026-06-04
+**Status:** Accepted
+
+**Context:**
+After applying the boot hook from ADR-003 and rebooting WSL2 to test
+persistence, Multipass became completely unusable. The error was:
+
+```
+internal error: cannot find installed snap "multipass" at revision 17270:
+missing file /snap/multipass/17270/meta/snap.yaml
+```
+
+`snap list` hung indefinitely. The login banner showed
+`* Starting Docker: docker [OK]` — the SysV init format — instead of the
+systemd format expected.
+
+**Root cause:**
+WSL2 does not run systemd by default; it must be opted into via
+`/etc/wsl.conf` with `[boot] systemd = true`. The first version of the
+`wsl.conf` written for ADR-003 did not include this line. Without
+systemd, the snap layer cannot mount snap squashfs files at boot, so
+`/snap/multipass/17270/` exists in metadata but contains no actual files.
+
+**Decision:**
+`/etc/wsl.conf` must always include `systemd = true` in the `[boot]`
+section. This is a hard requirement for the lab, not a preference.
+
+```ini
+[boot]
+systemd = true
+command = "/usr/local/sbin/multipass-net.sh"
+
+[user]
+default = cmbt1
+```
+
+**Trade-offs accepted:**
+- Slightly higher resource use at WSL2 boot (systemd starts more
+  services than SysV). Negligible on this hardware.
+- Some legacy WSL2 behaviors change. Not relevant for this lab.
+
+**Recovery procedure** if this is ever broken again:
+1. Fix `/etc/wsl.conf` to include `systemd = true`.
+2. Run `wsl --shutdown` from PowerShell.
+3. Reopen Ubuntu; verify with `ps -p 1 -o comm=` (should return `systemd`).
+4. Reinstall Multipass: `sudo snap remove multipass --purge && sudo snap install multipass`.
+
+---
+
+## ADR-005: NOPASSWD sudo for lab nodes
+
+**Date:** 2026-06-04
+**Status:** Accepted
+
+**Context:**
+The cloud-init template (`cloud-init/node.yaml`) configures the default
+`ubuntu` user on every lab VM with `sudo: ALL=(ALL) NOPASSWD:ALL`, meaning
+the user can execute any command as root without being prompted for a
+password.
+
+In production, `NOPASSWD` is generally avoided: if an attacker compromises
+a user session (key leak, hijacked terminal), they gain instant root with
+no additional barrier. The conventional production approach requires a
+password and stores it in a vault for automation tooling to retrieve when
+needed.
+
+**Decision:**
+Accept `NOPASSWD:ALL` for all lab nodes.
+
+**Rationale:**
+- Ansible drives all provisioning in this lab. Non-interactive `sudo` is
+  required for Ansible playbooks to be idempotent and unattended.
+- Without `NOPASSWD`, every playbook run would either prompt for a
+  password (defeating automation) or require a vault setup whose
+  complexity is disproportionate to a personal lab.
+
+**Mitigations in place:**
+- `lock_passwd: true` in cloud-init disables password-based SSH login
+  entirely. The only way into a VM is the lab-dedicated SSH key
+  (`~/.ssh/k8slab`).
+- The SSH key is dedicated to this lab and not reused for any other
+  account or system. If leaked, the blast radius is the lab itself.
+- VMs live on the WSL2 internal NAT segment, not directly exposed to
+  the home LAN or the internet.
+
+**Production note:**
+A production deployment would require sudo password and store the
+automation credential in a vault (HashiCorp Vault, Ansible Vault,
+External Secrets Operator, etc.). The lab does not adopt this pattern
+because the iteration speed cost outweighs the marginal security gain
+in an isolated lab environment.
