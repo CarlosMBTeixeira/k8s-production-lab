@@ -30,6 +30,7 @@ echo "| Lab health check — $(date '+%H:%M %d-%m-%Y')"
 echo "|---------------------------------------------------------------------------"
 
 echo "WSL2 host:"
+#        These are $1                                 These are $2
 check "systemd is PID 1"                "[ \"\$(ps -p 1 -o comm=)\" = 'systemd' ]"
 check "Multipass daemon responding"     "multipass version"
 check "FORWARD rules on mpqemubr0"      "sudo iptables -L FORWARD -n -v | grep -q mpqemubr0"
@@ -37,17 +38,20 @@ check "FORWARD rules on mpqemubr0"      "sudo iptables -L FORWARD -n -v | grep -
 echo ""
 echo "VMs:"
 for vm in controlplane-1 controlplane-2 worker-1 worker-2; do
+#      This is $1                                         This is $2
     check "$vm running"                 "multipass info $vm | grep -q 'State.*Running'"
 done
 
 echo ""
 echo "SSH access:"
 for alias in cp-1 cp-2 w-1 w-2; do
+#          This is $1                                  This is $2
     check "ssh $alias works"            "ssh -o ConnectTimeout=5 $alias 'true'"
 done
 
 echo ""
 echo "Repo:"
+#      These are $1                                 These are $2
 check "git status clean"                "cd ~/k8slab && [ -z \"\$(git status --porcelain)\" ]"
 check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]"
 
