@@ -43,7 +43,9 @@ TEMPLATE="$(dirname "$0")/../cloud-init/node.yaml"
 # Create a unique temporary file to hold the rendered template.
 # mktemp generates a random filename in /tmp with safe permissions (0600).
 # The --suffix flag makes the file end in .yaml for clarity if inspected.
-RENDERED=$(mktemp --suffix=.yaml)
+RENDERED_DIR="$(dirname "$0")/../cloud-init/.rendered"
+mkdir -p "$RENDERED_DIR"
+RENDERED="${RENDERED_DIR}/${HOSTNAME}.yaml"
 
 # Register a cleanup hook: delete the temporary file when the script exits,
 # regardless of exit reason (success, error, Ctrl+C, signal).
