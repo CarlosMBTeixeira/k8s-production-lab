@@ -391,3 +391,57 @@ should have prompted the investigation done in this session.
 When applying multiple infrastructure changes to fix a problem, isolate
 which one actually fixed it before declaring the workaround correct.
 Otherwise you carry unnecessary complexity for the life of the project.
+
+---
+
+## ADR-010: Passwordless sudo for iptables on the WSL2 host
+
+**Date:** 2026-06-07
+**Status:** Accepted
+
+**Context:**
+The `morning-check.sh` script needs to verify iptables FORWARD rules on
+`mpqemubr0` at the start of each session. Without passwordless sudo for
+`iptables`, the script either prompts for a password mid-execution
+(which breaks non-interactive use) or has its sudo prompt swallowed by
+output redirection (causing false negatives).
+
+The same problem will recur with any future automation that needs to
+inspect or modify iptables rules — Ansible playbooks, validation
+scripts, the lab-management.sh wrapper, etc.
+
+**Decision:**
+Configure passwordless sudo specifically for the `iptables` binary via
+`/etc/sudoers.d/iptables-nopass`:
+
+```
+$USER ALL=(ALL) NOPASSWD: /usr/sbin/iptables
+```
+
+Applied with:
+
+```bash
+echo "$USER ALL=(ALL) NOPASSWD: /usr/sbin/iptables" | sudo tee /etc/sudoers.d/iptables-nopass
+sudo chmod 0440 /etc/sudoers.d/iptables-nopass
+```
+
+**Why scoped to iptables only:**
+Unlike the `NOPASSWD:ALL` rule in cloud-init (ADR-005, scoped to lab
+VMs), this rule is on the WSL2 host. Granting passwordless sudo for
+all commands on the host would be excessive. Scoping to iptables only
+allows automation without widening the privilege footprint beyond what
+is needed.
+
+**Mitigations:**
+- Rule lives in `/etc/sudoers.d/` (not the main sudoers), making it
+  trivial to remove with `sudo rm /etc/sudoers.d/iptables-nopass`.
+- Only the iptables binary is exempted; all other sudo commands still
+  require a password.
+- This is the WSL2 host, not directly exposed to the internet.
+
+**Production note:**
+In production, network rules are typically managed by configuration
+management (Ansible, Salt, Puppet) under their own privilege model,
+not via direct sudo. This trade-off is specific to interactive lab
+work where speed of iteration matters more than strict privilege
+separation.
