@@ -478,9 +478,14 @@ Move the creation of the 'ansible' user to the cloud-init template
 alongside 'ubuntu', with the same SSH key and sudo configuration.
 
 The playbook `02-ansible-user.yml` is retained as a state-verification
-mechanism: running it on a freshly built VM reports `changed=0` for all
-tasks (idempotent), confirming that cloud-init applied the configuration
-correctly.
+mechanism. On a freshly built VM, 3 of its 4 tasks report `changed=0`,
+confirming cloud-init applied the user, SSH directory, and authorized
+key correctly. The `Configure passwordless sudo` task reports `changed=1`
+on every run because cloud-init writes the sudoers entry to
+`/etc/sudoers.d/90-cloud-init-users` while the playbook manages
+`/etc/sudoers.d/ansible-nopasswd`. The two files coexist with identical
+effect; the duplication is cosmetic and accepted as known minor noise.
+A future cleanup could reconcile the paths, but this is not blocking.
 
 **Why this is better:**
 - Reproducibility: `lab-management.sh build` produces nodes already
