@@ -14,6 +14,14 @@ users:
     ssh_authorized_keys:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINKkl8bQ/AokcBBBf6KIdDE1nDWpOX/auyyCpdibXSdl k8slab
 
+  - name: ansible
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: sudo
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINKkl8bQ/AokcBBBf6KIdDE1nDWpOX/auyyCpdibXSdl k8slab
+
 runcmd:
   - swapoff -a
   - sed -i '/swap/s/^/#/' /etc/fstab

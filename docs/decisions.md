@@ -445,3 +445,59 @@ management (Ansible, Salt, Puppet) under their own privilege model,
 not via direct sudo. This trade-off is specific to interactive lab
 work where speed of iteration matters more than strict privilege
 separation.
+
+---
+
+## ADR-011: Provision automation user via cloud-init, not Ansible playbook
+
+**Date:** 2026-06-12
+**Status:** Accepted
+**Supersedes:** Behavior implied by playbook 02-ansible-user.yml
+
+**Context:**
+The initial setup in Week 2 used playbook `02-ansible-user.yml` to create
+a dedicated 'ansible' user on each lab node, with sudo and the lab SSH
+key. The inventory was then updated to use `ansible_user=ansible`.
+
+This worked, but introduced a circular dependency: when VMs are destroyed
+and recreated (via `lab-management.sh rebuild`), the cloud-init only
+creates the 'ubuntu' user. Ansible then tries to connect as 'ansible',
+fails with `Permission denied (publickey)`, and `02-ansible-user.yml`
+cannot run because Ansible cannot reach the hosts.
+
+The workaround required manual intervention:
+
+    ansible-playbook 02-ansible-user.yml -e ansible_user=ubuntu
+
+This breaks the "destroy and rebuild with one command" property that
+the lab aims for.
+
+**Decision:**
+Move the creation of the 'ansible' user to the cloud-init template
+(`cloud-init/node.yaml`). The user is now provisioned on first boot,
+alongside 'ubuntu', with the same SSH key and sudo configuration.
+
+The playbook `02-ansible-user.yml` is retained as a state-verification
+mechanism: running it on a freshly built VM reports `changed=0` for all
+tasks (idempotent), confirming that cloud-init applied the configuration
+correctly.
+
+**Why this is better:**
+- Reproducibility: `lab-management.sh build` produces nodes already
+  reachable by Ansible, with no manual bootstrap step.
+- Mirrors production patterns: in cloud environments (AWS, Azure, GCP),
+  the automation user is typically created at instance launch via
+  cloud-init or a baked image, not via a post-boot configuration tool.
+- Defense in depth: cloud-init provisions the user; the playbook
+  validates the state. Two layers, both idempotent.
+
+**Lesson:**
+Bootstrap dependencies are easy to miss when first building a system.
+The initial test worked because the user 'ubuntu' was still available
+as a fallback in the inventory. The dependency only became visible when
+the inventory was switched to the new user, and the test was only
+exposed when VMs were recreated from scratch.
+
+When designing automation that depends on state, ask: "What does this
+need that doesn't exist yet?" The answer often reveals a hidden
+bootstrap step that should be moved earlier in the chain.
