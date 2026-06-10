@@ -25,13 +25,13 @@
     # Show current swap state before doing anything. Purely informational.
     - name: Show current swap status
       ansible.builtin.debug:
-        msg: "Current swap on {{ inventory_hostname }}: {{ ansible_swaptotal_mb }} MB total"
+        msg: "Current swap on {{ inventory_hostname }}: {{ ansible_facts['swaptotal_mb'] }} MB total"
 
     # Turn off swap at runtime. The 'when' clause skips this if there's
     # already no swap configured, which is the case on cloud-init-built VMs.
     - name: Disable swap at runtime (swapoff -a)
       ansible.builtin.command: swapoff -a
-      when: ansible_swaptotal_mb > 0
+      when: ansible_facts['swaptotal_mb'] > 0
       changed_when: true
 
     # Comment out any swap entries in /etc/fstab so swap doesn't come back
