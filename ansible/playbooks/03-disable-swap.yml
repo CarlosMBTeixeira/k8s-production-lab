@@ -1,0 +1,60 @@
+---
+# ============================================================================
+# 03-disable-swap.yml — Disable swap on all lab nodes (Kubernetes requirement).
+# ----------------------------------------------------------------------------
+# Kubernetes' kubelet refuses to start when swap is active because the
+# scheduler relies on memory guarantees that swap breaks. This playbook
+# ensures swap is off both at runtime (swapoff -a) and persistently
+# across reboots (commented out in /etc/fstab).
+#
+# Cloud-init already does this on first boot. The playbook is here for
+# defense in depth and to validate state on existing nodes.
+#
+# Idempotency:
+#   - First run on a fresh VM: changed=0 (cloud-init already did the work).
+#   - Subsequent runs: changed=0 (nothing left to do).
+# ============================================================================
+
+- name: Disable swap on all nodes
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true        # We need ansible_swaptotal_mb to check current state.
+
+  tasks:
+
+    # Show current swap state before doing anything. Purely informational.
+    - name: Show current swap status
+      ansible.builtin.debug:
+        msg: "Current swap on {{ inventory_hostname }}: {{ ansible_swaptotal_mb }} MB total"
+
+    # Turn off swap at runtime. The 'when' clause skips this if there's
+    # already no swap configured, which is the case on cloud-init-built VMs.
+    - name: Disable swap at runtime (swapoff -a)
+      ansible.builtin.command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+      changed_when: true
+
+    # Comment out any swap entries in /etc/fstab so swap doesn't come back
+    # after a reboot. The regex matches lines containing 'swap' but not
+    # already commented. Idempotent: if no matching line exists, changed=0.
+    - name: Comment out swap entries in /etc/fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*\sswap\s.*)$'
+        replace: '# \1'
+
+    # Final verification: confirm swap is actually off after our work.
+    # Reading /proc/swaps returns empty (only the header line) when no
+    # swap is active. We use 'command' + 'register' rather than 'shell'
+    # to avoid invoking a subshell unnecessarily.
+    - name: Verify swap is now off
+      ansible.builtin.command: swapon --show
+      register: swapon_check
+      changed_when: false   # This is a read-only check, never reports changed.
+
+    - name: Confirm verification result
+      ansible.builtin.assert:
+        that:
+          - swapon_check.stdout == ""
+        fail_msg: "Swap is still active on {{ inventory_hostname }}: {{ swapon_check.stdout }}"
+        success_msg: "Swap confirmed off on {{ inventory_hostname }}"
