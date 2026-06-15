@@ -1,0 +1,17 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the disable-swap role.
+# ----------------------------------------------------------------------------
+# This role has minimal operational parameters worth overriding — swap is
+# either disabled or it isn't. The defaults file exists for structural
+# consistency with other roles and to provide a place for future
+# configurability.
+# ============================================================================
+
+# Path to the fstab file. Configurable in case a future image uses a
+# non-standard path (e.g. some embedded distros use /etc/fstab.local).
+disable_swap_fstab_path: /etc/fstab
+
+# Regex matching swap entries in fstab that should be commented out.
+# Matches uncommented lines where 'swap' appears as a field type.
+disable_swap_fstab_regex: '^([^#].*\sswap\s.*)$'

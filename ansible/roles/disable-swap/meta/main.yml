@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata.
+# ----------------------------------------------------------------------------
+# Independent role: doesn't depend on others, and other roles don't
+# typically depend on it (each role manages its own concern).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Disable swap (runtime and persistent) on Kubernetes nodes.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - swap
+
+dependencies: []

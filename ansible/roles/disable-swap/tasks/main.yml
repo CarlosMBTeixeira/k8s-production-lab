@@ -1,0 +1,38 @@
+---
+# ============================================================================
+# tasks/main.yml — Disable swap on Kubernetes nodes.
+# ----------------------------------------------------------------------------
+# Kubernetes' kubelet refuses to start when swap is active. This role
+# ensures swap is off at runtime AND persistently in /etc/fstab (so it
+# stays off across reboots).
+#
+# Cloud-init already does this on first boot. The role provides defense
+# in depth and validates state on existing nodes.
+# ============================================================================
+
+- name: Show current swap status
+  ansible.builtin.debug:
+    msg: "Current swap on {{ inventory_hostname }}: {{ ansible_facts['swaptotal_mb'] }} MB total"
+
+- name: Disable swap at runtime (swapoff -a)
+  ansible.builtin.command: swapoff -a
+  when: ansible_facts['swaptotal_mb'] > 0
+  changed_when: true
+
+- name: Comment out swap entries in /etc/fstab
+  ansible.builtin.replace:
+    path: "{{ disable_swap_fstab_path }}"
+    regexp: "{{ disable_swap_fstab_regex }}"
+    replace: '# \1'
+
+- name: Verify swap is now off
+  ansible.builtin.command: swapon --show
+  register: swapon_check
+  changed_when: false
+
+- name: Confirm verification result
+  ansible.builtin.assert:
+    that:
+      - swapon_check.stdout == ""
+    fail_msg: "Swap is still active on {{ inventory_hostname }}: {{ swapon_check.stdout }}"
+    success_msg: "Swap confirmed off on {{ inventory_hostname }}"
