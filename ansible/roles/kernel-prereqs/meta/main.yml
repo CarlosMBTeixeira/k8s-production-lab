@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata.
+# ----------------------------------------------------------------------------
+# Declared dependencies are applied BEFORE this role's tasks. Useful when
+# this role assumes another role has run first.
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Kernel modules and sysctl parameters required by Kubernetes nodes.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - kernel
+    - sysctl
+
+# This role has no dependencies on other roles (yet).
+dependencies: []

@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the kernel-prereqs role.
+# ----------------------------------------------------------------------------
+# These can be overridden at multiple levels (group_vars, host_vars, the
+# playbook that calls this role, or extra-vars). Defaults have the lowest
+# precedence — they're the "if nobody else says otherwise" values.
+# ============================================================================
+
+# Kernel modules required by Kubernetes nodes.
+kernel_prereqs_modules:
+  - overlay
+  - br_netfilter
+
+# sysctl parameters required by Kubernetes nodes.
+# Each item is a {name, value} pair consumed by the sysctl module.
+kernel_prereqs_sysctls:
+  - { name: net.bridge.bridge-nf-call-iptables,  value: '1' }
+  - { name: net.bridge.bridge-nf-call-ip6tables, value: '1' }
+  - { name: net.ipv4.ip_forward,                 value: '1' }
+
+# File paths for persistent configuration.
+kernel_prereqs_modules_file: /etc/modules-load.d/k8s.conf
+kernel_prereqs_sysctl_file:  /etc/sysctl.d/k8s.conf

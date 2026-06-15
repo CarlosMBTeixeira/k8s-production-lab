@@ -1,95 +1,15 @@
 ---
 # ============================================================================
-# 04-kernel-prereqs.yml — Kernel prerequisites for Kubernetes nodes.
+# 04-kernel-prereqs.yml — Apply kernel prerequisites via the kernel-prereqs role.
 # ----------------------------------------------------------------------------
-# Kubernetes requires three kernel-level conditions on every node:
-#
-#   1. overlay module loaded     → enables OverlayFS for container layering.
-#   2. br_netfilter module loaded → lets netfilter inspect bridge traffic
-#                                   (required by kube-proxy and NetworkPolicy).
-#   3. Three sysctl parameters set persistently:
-#      - net.bridge.bridge-nf-call-iptables   = 1
-#      - net.bridge.bridge-nf-call-ip6tables  = 1
-#      - net.ipv4.ip_forward                  = 1
-#
-# These are applied so they survive reboots: modules via /etc/modules-load.d/
-# (read at boot by systemd-modules-load), sysctls via /etc/sysctl.d/ (applied
-# by systemd-sysctl). Both directories follow the same idempotent pattern:
-# the file existing with the right content is enough.
-#
-# Idempotency:
-#   - First run: modules loaded (if not yet), files created, sysctls applied.
-#   - Subsequent runs: changed=0 if state already matches.
+# Thin wrapper that invokes the kernel-prereqs role on all K8s nodes.
+# The actual logic lives in roles/kernel-prereqs/.
 # ============================================================================
 
-- name: Configure kernel prerequisites for Kubernetes
+- name: Apply kernel prerequisites for Kubernetes
   hosts: k8s_cluster
   become: true
-  gather_facts: false       # No facts needed for these operations.
+  gather_facts: false
 
-  tasks:
-
-    # Load the modules immediately at runtime. This affects only the
-    # current boot — persistence is handled by the next task.
-    - name: Load required kernel modules now
-      community.general.modprobe:
-        name: "{{ item }}"
-        state: present
-      loop:
-        - overlay
-        - br_netfilter
-
-    # Write the module names to /etc/modules-load.d/ so they load at
-    # every boot. The file is named after the role (k8s) so it's
-    # immediately clear what owns it.
-    - name: Persist module loading across reboots
-      ansible.builtin.copy:
-        dest: /etc/modules-load.d/k8s.conf
-        content: |
-          overlay
-          br_netfilter
-        owner: root
-        group: root
-        mode: '0644'
-
-    # Apply the sysctl settings now and persist them in /etc/sysctl.d/.
-    # The sysctl module handles both in a single declaration: 'sysctl_set'
-    # applies at runtime, 'sysctl_file' writes the persistent config.
-    - name: Configure sysctl parameters for Kubernetes
-      ansible.posix.sysctl:
-        name: "{{ item.name }}"
-        value: "{{ item.value }}"
-        sysctl_file: /etc/sysctl.d/k8s.conf
-        sysctl_set: true
-        state: present
-        reload: true
-      loop:
-        - { name: net.bridge.bridge-nf-call-iptables,  value: '1' }
-        - { name: net.bridge.bridge-nf-call-ip6tables, value: '1' }
-        - { name: net.ipv4.ip_forward,                 value: '1' }
-
-    # Post-condition: verify each module is actually loaded after our
-    # work. Reading /proc/modules is the canonical way to inspect the
-    # current set of loaded modules.
-    - name: Verify modules are loaded
-      ansible.builtin.shell: "lsmod | grep -E '^(overlay|br_netfilter)\\b'"
-      register: lsmod_check
-      changed_when: false
-      failed_when: lsmod_check.rc != 0
-
-    # Post-condition: verify each sysctl has the expected runtime value.
-    # We read /proc/sys/<key> directly (one path per sysctl), which is
-    # the source of truth for the running kernel.
-    - name: Verify sysctl values are applied
-      ansible.builtin.command: "sysctl -n {{ item }}"
-      register: sysctl_check
-      changed_when: false
-      failed_when: sysctl_check.stdout.strip() != "1"
-      loop:
-        - net.bridge.bridge-nf-call-iptables
-        - net.bridge.bridge-nf-call-ip6tables
-        - net.ipv4.ip_forward
-
-    - name: Confirm all kernel prerequisites satisfied
-      ansible.builtin.debug:
-        msg: "Kernel prerequisites satisfied on {{ inventory_hostname }}"
+  roles:
+    - kernel-prereqs
