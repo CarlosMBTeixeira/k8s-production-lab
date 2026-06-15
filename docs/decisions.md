@@ -506,3 +506,68 @@ exposed when VMs were recreated from scratch.
 When designing automation that depends on state, ask: "What does this
 need that doesn't exist yet?" The answer often reveals a hidden
 bootstrap step that should be moved earlier in the chain.
+
+---
+
+## ADR-012: `cache_valid_time` is per-node, not per-orchestration-run
+
+**Date:** 2026-06-15
+**Status:** Accepted
+
+**Context:**
+Running `site.yml` twice consecutively produced inconsistent results
+on the `apt-base : Update apt cache` task:
+
+  - First run:  3 nodes `changed`, 1 node `ok` (w-2)
+  - Second run: 3 nodes `ok`, 1 node `changed` (w-2)
+
+Initial suspicion was clock skew or a network glitch. Investigation
+revealed neither: it's an artefact of how `cache_valid_time` works.
+
+**Mechanism:**
+The Ansible `apt` module uses the mtime of `/var/cache/apt/pkgcache.bin`
+to decide whether to refresh the cache. If `(now - mtime) 
+cache_valid_time`, the task reports `ok`. Otherwise it runs `apt-get
+update`, which updates the mtime, and reports `changed`.
+
+In a 4-VM lab, the cloud-init `apt update` runs sequentially across
+nodes — VMs are created one at a time. The mtime on each node reflects
+when its specific cloud-init finished, which can vary by minutes.
+
+In our setup, the 4 cloud-inits left mtimes spread across ~4 minutes
+(05:23 to 05:27). When `site.yml` ran at ~05:23, cp-1/cp-2/w-1 caches
+were already over an hour old (refreshed by an even earlier run), so
+they were refreshed. w-2's cloud-init finished later (05:27), so its
+cache was still within the 3600s window — it skipped refresh.
+
+Two minutes later, on the second `site.yml` run, the three caches just
+refreshed were now well inside the window (~2 minutes old), so they
+skipped. w-2's cache hadn't been refreshed by the previous run (because
+the play decided it was current), so it now showed as ~1h 02m old —
+just over the 3600s threshold — and got refreshed.
+
+**Decision:**
+Accept this as expected behavior. `cache_valid_time` operates per-node,
+not per-orchestration. Achieving lockstep idempotency across nodes
+would require either:
+
+  - Synchronizing mtimes externally (fragile, anti-pattern).
+  - Increasing `cache_valid_time` to a value much larger than the
+    expected interval between runs (e.g., 21600 = 6h).
+  - Removing `cache_valid_time` entirely and accepting that `apt
+    update` always reports changed (wasteful).
+
+None of these is worth doing for a lab. We document the behavior and
+move on.
+
+**Lesson:**
+Idempotency in distributed systems is not just about correct module
+choice. State that depends on time (timestamps, certificates, caches)
+can produce visible drift between nodes that nominally have identical
+configuration. This is a feature, not a bug — it accurately reflects
+that the nodes are independent systems with their own clocks and
+their own cloud-init runs.
+
+This kind of artefact will reappear in K8s: certificate rotation, etcd
+leases, kubelet renewals. Understanding "per-node, not per-cluster" is
+foundational.

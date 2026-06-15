@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the ansible-user role.
+# ----------------------------------------------------------------------------
+# NOTE: variable prefix changed from 'ansible_' to 'automation_' to avoid
+# colliding with Ansible's reserved 'ansible_*' fact namespace, which is
+# being deprecated in ansible-core 2.24.
+# ============================================================================
+
+# Name of the automation user. Cloud-init creates this user on first boot
+# (ADR-011), so this role mostly validates state.
+automation_user_name: ansible
+
+# Shell for the user.
+automation_user_shell: /bin/bash
+
+# Additional groups the user belongs to (sudo gives passwordless root via
+# the sudoers entry below).
+automation_user_groups:
+  - sudo
+
+# Path to the public key on the controller (this WSL2 host).
+automation_user_public_key_path: ~/.ssh/k8slab.pub
+
+# Path to the sudoers drop-in file.
+automation_user_sudoers_path: /etc/sudoers.d/ansible-nopasswd

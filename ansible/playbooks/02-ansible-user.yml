@@ -1,84 +1,14 @@
 ---
 # ============================================================================
-# 02-ansible-user.yml — Provision a dedicated 'ansible' user on each node.
+# 02-ansible-user.yml — Provision automation user via the ansible-user role.
 # ----------------------------------------------------------------------------
-# Up to now, automation has run as the cloud-init 'ubuntu' user. This
-# playbook creates a separate 'ansible' user with the same lab SSH key
-# and passwordless sudo, so that future automation has a dedicated
-# identity independent from the default cloud user.
-#
-# Why a separate user:
-#   - Aligns with production practice: automation identity != default user.
-#   - Allows revoking automation access without touching the ubuntu account.
-#   - Makes audit trails cleaner (sudo logs show 'ansible', not 'ubuntu').
-#
-# Idempotency:
-#   - First run: creates user, configures sudo, writes authorized_keys.
-#   - Subsequent runs: all tasks should report 'ok' with changed=0.
-#
-# After this playbook runs successfully, update the inventory to use
-#   ansible_user=ansible
-# instead of ansible_user=ubuntu, then re-run `ansible all -m ping` to
-# confirm the new identity works end-to-end.
+# Thin wrapper. Real logic lives in roles/ansible-user/.
 # ============================================================================
 
-- name: Create dedicated ansible user
-  hosts: k8s_cluster      # Apply to all 4 nodes (controlplane + workers).
-  become: true            # User management and /etc/sudoers.d/ need root.
-  gather_facts: false     # No facts needed for these operations.
+- name: Provision the dedicated automation user
+  hosts: k8s_cluster
+  become: true
+  gather_facts: false
 
-  tasks:
-
-    # Create the 'ansible' user with sudo group membership.
-    #   - groups: sudo  → adds to the sudo group (required for /etc/sudoers).
-    #   - append: yes   → preserves any other groups (defensive; user is new
-    #                     here so this is mostly a future-proofing habit).
-    #   - create_home: yes → ensures /home/ansible exists.
-    #   - state: present  → idempotent: only create if missing.
-    - name: Create ansible user
-      ansible.builtin.user:
-        name: ansible
-        shell: /bin/bash
-        groups: sudo
-        append: yes
-        create_home: yes
-        state: present
-
-    # Configure passwordless sudo specifically for the ansible user.
-    # Writes a dedicated file in /etc/sudoers.d/ rather than editing
-    # the main /etc/sudoers — easier to manage and to remove later.
-    #
-    # 'validate: /usr/sbin/visudo -cf %s' is CRITICAL: it runs visudo to
-    # parse the candidate file before installing it. If the syntax is
-    # broken, the task fails and the existing file is preserved. Without
-    # this, a typo could lock you out of sudo entirely.
-    - name: Configure passwordless sudo for ansible user
-      ansible.builtin.copy:
-        content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
-        dest: /etc/sudoers.d/ansible-nopasswd
-        mode: '0440'
-        owner: root
-        group: root
-        validate: /usr/sbin/visudo -cf %s
-
-    # Ensure the .ssh directory exists with the correct permissions
-    # before writing authorized_keys. SSH refuses to read authorized_keys
-    # from a directory with overly permissive modes.
-    - name: Ensure SSH directory exists
-      ansible.builtin.file:
-        path: /home/ansible/.ssh
-        state: directory
-        owner: ansible
-        group: ansible
-        mode: '0700'
-
-    # Authorize the lab SSH key for the ansible user.
-    # 'lookup("file", ...)' reads the public key from the Ansible controller
-    # (this WSL2 host), not from the target. The key contents are then
-    # appended to /home/ansible/.ssh/authorized_keys on each target.
-    # 'state: present' is idempotent: existing identical keys are preserved.
-    - name: Authorize lab SSH key for ansible user
-      ansible.posix.authorized_key:
-        user: ansible
-        key: "{{ lookup('file', '~/.ssh/k8slab.pub') }}"
-        state: present
+  roles:
+    - ansible-user

@@ -1,46 +1,14 @@
 ---
 # ============================================================================
-# 01-apt-update.yml — Refresh apt cache and apply safe upgrades.
+# 01-apt-update.yml — Refresh apt and upgrade via the apt-base role.
 # ----------------------------------------------------------------------------
-# Equivalent to running `sudo apt update && sudo apt upgrade -y` on every
-# lab node, but as an idempotent Ansible play. The cloud-init template
-# already does this on first boot; this playbook makes the operation
-# repeatable and tracked under version control.
-#
-# Idempotency:
-#   - First run after a fresh VM may show 'changed' on upgrade.
-#   - Subsequent runs within the cache window (1h) should report changed=0.
+# Thin wrapper. Real logic lives in roles/apt-base/.
 # ============================================================================
 
-- name: Update apt cache and upgrade packages
-  hosts: k8s_cluster      # Targets controlplane + workers (the meta-group).
-  become: true            # All apt operations need root privileges.
-  gather_facts: false     # We don't need ansible_facts here; skip the
-                          # ~2-3s gathering overhead.
+- name: Refresh apt cache and apply upgrades
+  hosts: k8s_cluster
+  become: true
+  gather_facts: false
 
-  tasks:
-
-    # Updates the apt package index. cache_valid_time prevents re-running
-    # this if the cache was refreshed less than 3600s (1h) ago — a form
-    # of fine-grained idempotency that avoids redundant network calls.
-    - name: Update apt cache (cache_valid_time 1h)
-      ansible.builtin.apt:
-        update_cache: yes
-        cache_valid_time: 3600
-
-    # 'upgrade: safe' maps to `apt upgrade` (not dist-upgrade). It will
-    # not install or remove packages beyond what's needed to upgrade
-    # the current ones — safer default for lab nodes.
-    # register: stores the task result in a variable for use in later tasks.
-    - name: Upgrade all packages (apt upgrade)
-      ansible.builtin.apt:
-        upgrade: safe
-      register: upgrade_result
-
-    # Print a summary of what was upgraded, but only if anything actually
-    # changed. The 'when' clause makes this task itself idempotent: it
-    # produces no output on subsequent runs where nothing was upgraded.
-    - name: Show upgrade summary
-      ansible.builtin.debug:
-        msg: "{{ upgrade_result.stdout_lines | default(['No upgrade output']) }}"
-      when: upgrade_result.changed
+  roles:
+    - apt-base

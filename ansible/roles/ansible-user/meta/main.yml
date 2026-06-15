@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata.
+# ----------------------------------------------------------------------------
+# Foundation role for automation identity. Depends on apt-base only
+# implicitly (sudo package must be installed; on Ubuntu cloud images
+# it always is).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Provision the dedicated automation user (with sudo + SSH key).
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - user
+    - automation
+    - sudo
+
+dependencies: []

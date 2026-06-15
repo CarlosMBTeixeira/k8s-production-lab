@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the apt-base role.
+# ----------------------------------------------------------------------------
+# The role refreshes the apt cache and applies safe upgrades. Lists below
+# can be extended without touching tasks/main.yml — just add to the
+# inventory's group_vars or override at the playbook level.
+# ============================================================================
+
+# How fresh the apt cache must be (in seconds) before we re-fetch.
+# 3600 = 1 hour. Avoids redundant network calls within the window.
+apt_base_cache_valid_time: 3600
+
+# Upgrade strategy. Options:
+#   'safe' → equivalent to 'apt upgrade' (conservative).
+#   'full' → 'apt full-upgrade' (may remove packages to upgrade others).
+#   'dist' → 'apt dist-upgrade' (legacy alias of full).
+#   'yes'  → safe upgrade plus a forced retry.
+# 'safe' is recommended for lab nodes.
+apt_base_upgrade_strategy: safe
+
+# Extra packages to install on all nodes. Empty list by default —
+# add as needed (e.g. ['curl', 'jq', 'htop']) via group_vars or
+# at the playbook level.
+apt_base_extra_packages: []

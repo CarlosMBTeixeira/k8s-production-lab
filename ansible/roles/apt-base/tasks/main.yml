@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# tasks/main.yml — Refresh apt cache, upgrade, install extra packages.
+# ----------------------------------------------------------------------------
+# This is the foundation for any node setup: keep apt in good shape.
+# ============================================================================
+
+- name: Update apt cache (cache_valid_time {{ apt_base_cache_valid_time }}s)
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: "{{ apt_base_cache_valid_time }}"
+
+- name: Upgrade all packages ({{ apt_base_upgrade_strategy }})
+  ansible.builtin.apt:
+    upgrade: "{{ apt_base_upgrade_strategy }}"
+  register: upgrade_result
+
+- name: Show upgrade summary (only if something changed)
+  ansible.builtin.debug:
+    msg: "{{ upgrade_result.stdout_lines | default(['No upgrade output']) }}"
+  when: upgrade_result.changed
+
+- name: Install extra packages (if any defined)
+  ansible.builtin.apt:
+    name: "{{ apt_base_extra_packages }}"
+    state: present
+  when: apt_base_extra_packages | length > 0

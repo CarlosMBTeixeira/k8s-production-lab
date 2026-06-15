@@ -1,0 +1,39 @@
+---
+# ============================================================================
+# site.yml — Master playbook for the K8s lab.
+# ----------------------------------------------------------------------------
+# Orchestrates the full base-state configuration of all lab nodes by
+# applying every role in the correct order. Designed to be idempotent:
+# running 'site.yml' twice in a row should produce changed=0 on the
+# second run.
+#
+# Roles applied (in order):
+#   1. apt-base         → refresh apt, apply safe upgrades.
+#   2. ansible-user     → validate/create the automation user.
+#   3. disable-swap     → ensure swap is off (Kubernetes requirement).
+#   4. kernel-prereqs   → load kernel modules and set sysctls for K8s.
+#
+# Why this order:
+#   - apt-base first: keeping packages current is a prerequisite to
+#     installing anything else later.
+#   - ansible-user second: ensures the automation identity exists before
+#     other roles potentially depend on it.
+#   - disable-swap and kernel-prereqs are independent of each other but
+#     both required before installing containerd (next week).
+#
+# Usage:
+#   ansible-playbook ansible/site.yml          # apply to all groups
+#   ansible-playbook ansible/site.yml --check  # dry-run
+#   ansible-playbook ansible/site.yml --diff   # show changes that would be made
+# ============================================================================
+
+- name: Configure all K8s lab nodes (base state)
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - apt-base
+    - ansible-user
+    - disable-swap
+    - kernel-prereqs

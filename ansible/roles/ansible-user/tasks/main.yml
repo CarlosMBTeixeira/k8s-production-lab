@@ -1,0 +1,39 @@
+---
+# ============================================================================
+# tasks/main.yml — Provision (or validate) the ansible automation user.
+# ----------------------------------------------------------------------------
+# Cloud-init creates this user on first boot (ADR-011). The role acts as
+# a state-verification layer.
+# ============================================================================
+
+- name: Create automation user
+  ansible.builtin.user:
+    name: "{{ automation_user_name }}"
+    shell: "{{ automation_user_shell }}"
+    groups: "{{ automation_user_groups }}"
+    append: yes
+    create_home: yes
+    state: present
+
+- name: Configure passwordless sudo for automation user
+  ansible.builtin.copy:
+    content: "{{ automation_user_name }} ALL=(ALL) NOPASSWD:ALL\n"
+    dest: "{{ automation_user_sudoers_path }}"
+    mode: '0440'
+    owner: root
+    group: root
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Ensure SSH directory exists
+  ansible.builtin.file:
+    path: "/home/{{ automation_user_name }}/.ssh"
+    state: directory
+    owner: "{{ automation_user_name }}"
+    group: "{{ automation_user_name }}"
+    mode: '0700'
+
+- name: Authorize lab SSH key for automation user
+  ansible.posix.authorized_key:
+    user: "{{ automation_user_name }}"
+    key: "{{ lookup('file', automation_user_public_key_path) }}"
+    state: present

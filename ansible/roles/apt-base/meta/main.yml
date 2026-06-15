@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata.
+# ----------------------------------------------------------------------------
+# Foundation role. No dependencies (it IS the dependency for others that
+# need apt to be functional).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Keep apt cache fresh, apply safe upgrades, install extras.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - apt
+    - base
+    - packages
+
+dependencies: []
