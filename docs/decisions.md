@@ -1015,7 +1015,7 @@ on the node (typically created by cloud-init).
 - Ansible builtin loop documentation:
   https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_loops.html
 
-  ---
+---
 
 ## ADR-018: Pin containerd config to schema v3 for containerd 2.x
 
@@ -1100,4 +1100,45 @@ Failing loud is the goal.
 - The format and contents of the default output change between
   patch versions of containerd, which would constantly produce
   diffs in our Ansible run output. The role would never report
-  changed=0 even
+  changed=0 even when nothing meaningful changed.
+- A hand-written minimal template documents intent: we know exactly
+  which settings the lab cares about and why. The defaults handle
+  the rest.
+
+**Why not preserve v2 compatibility via Jinja conditional:**
+- The Docker apt repo for Ubuntu Noble (24.04) only ships
+  containerd.io 2.x as of this writing. There's no realistic path
+  back to v1.x in this lab.
+- A conditional adds 30 lines of template, two test paths, and
+  ambiguity ("which path was rendered, again?"). Cost-benefit
+  doesn't justify it.
+- If a v1.x compatibility need ever appears, that warrants its own
+  ADR and a versioned template, not a runtime conditional.
+
+**Trade-off:**
+- The role is now tied to containerd 2.x. Older clusters (e.g.
+  upstream long-running deployments on 1.7.x) need a different
+  template. Acceptable for a lab project.
+- The silent-failure debugging experience cost ~45 min of
+  diagnostic time. Documented here so future-me (or anyone reading
+  this repo) recognizes the symptom faster.
+
+**Diagnostic recipe (for the next time something similar happens):**
+1. `containerd --version` to confirm major version.
+2. `systemctl is-active containerd` to rule out a hard failure.
+3. `ctr plugin ls | grep cri` — if the plugin shows 'ok' but
+   crictl still fails, it's a schema problem.
+4. `sudo cat /etc/containerd/config.toml | head -1` — check the
+   version header.
+5. Cross-reference plugin paths with the containerd version's
+   schema requirements.
+
+**References:**
+- containerd 2.x CRI plugin config (canonical reference, v3 schema):
+  https://github.com/containerd/containerd/blob/main/docs/cri/config.md
+- containerd configuration versions migration notes:
+  https://containerd.io/docs/2.1/cri/config/
+- Original SystemdCgroup decision (still valid, only path changed):
+  See ADR-013 in this document.
+- Kubernetes container runtimes docs (cgroup driver requirements):
+  https://kubernetes.io/docs/setup/production-environment/container-runtimes/
