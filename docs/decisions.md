@@ -571,3 +571,57 @@ their own cloud-init runs.
 This kind of artefact will reappear in K8s: certificate rotation, etcd
 leases, kubelet renewals. Understanding "per-node, not per-cluster" is
 foundational.
+
+---
+
+## ADR-013: Use `SystemdCgroup = true` for containerd
+
+**Date:** 2026-06-20
+**Status:** Accepted
+
+**Context:**
+Linux has two cgroup drivers used by container runtimes:
+  - `cgroupfs` — direct manipulation of /sys/fs/cgroup files.
+  - `systemd` — cgroup operations delegated to systemd's slice manager.
+
+Container runtimes (containerd, CRI-O, Docker) historically defaulted
+to `cgroupfs`. systemd is also a process supervisor on modern Linux
+distributions, and manages cgroups for system services.
+
+If two cgroup managers operate on the same hierarchy simultaneously,
+they can fight: one moves a process into a cgroup, the other moves it
+out, resources get accounted incorrectly, OOM kills fire unexpectedly.
+
+In Kubernetes, the kubelet ALSO manages cgroups for pods. If the
+kubelet uses one driver and the container runtime uses another, the
+two compete for the same hierarchy. This is the single most common
+cause of mysterious pod crashes in production K8s clusters.
+
+**Decision:**
+Configure containerd to use `SystemdCgroup = true` in
+`/etc/containerd/config.toml`. This aligns with the kubelet's default
+cgroup driver (also systemd since Kubernetes 1.22).
+
+**Why systemd over cgroupfs:**
+- Single source of truth for cgroup operations on Ubuntu 24.04.
+- systemd is already PID 1; using it removes one moving part.
+- Recommended explicitly by both upstream K8s docs and containerd docs.
+- Mandatory for nodes running both systemd and a CRI runtime.
+
+**Implementation:**
+Set in the containerd-configure role:
+  `containerd_use_systemd_cgroup: true` (defaults/main.yml)
+
+Rendered into `/etc/containerd/config.toml` via the
+templates/config.toml.j2 file, with Jinja2 filter chain
+`| string | lower` to produce the TOML boolean `true` (lowercase).
+
+**Mitigation if mismatched:**
+None easy. Mismatched cgroup drivers manifest as:
+  - Pods stuck in "ContainerCreating" indefinitely.
+  - Random OOM kills with no apparent memory pressure.
+  - "OCI runtime create failed" errors at pod startup.
+  - Diagnostic command: `sudo crictl info | grep cgroupDriver`.
+
+The kubelet's setting must match. Both default to systemd today;
+if either changes, the other must follow.

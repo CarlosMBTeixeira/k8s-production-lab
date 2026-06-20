@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# 06-containerd-configure.yml — Configure containerd via the role.
+# ----------------------------------------------------------------------------
+# Thin wrapper. Real logic is in roles/containerd-configure/.
+# Dependency chain: kernel-prereqs → containerd-install → containerd-configure.
+# ============================================================================
+
+- name: Configure containerd for Kubernetes
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - containerd-configure

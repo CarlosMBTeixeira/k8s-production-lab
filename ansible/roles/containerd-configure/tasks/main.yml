@@ -1,0 +1,41 @@
+---
+# ============================================================================
+# tasks/main.yml — Configure containerd for Kubernetes compatibility.
+# ----------------------------------------------------------------------------
+# Replaces the default /etc/containerd/config.toml (which ships with
+# cgroupfs as the cgroup driver) with one that uses systemd. This is
+# REQUIRED for Kubernetes nodes — kubelet expects containerd to use the
+# same cgroup driver as itself (systemd by default since K8s 1.22).
+#
+# The role uses a handler to restart containerd ONLY if the config file
+# actually changed. On idempotent re-runs, the handler is not notified
+# and containerd keeps running undisturbed.
+# ============================================================================
+
+- name: Ensure /etc/containerd directory exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Render containerd configuration from template
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: "{{ containerd_config_file }}"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true        # Save a .bak copy if the file existed before.
+  notify: Restart containerd
+
+- name: Verify config file is valid TOML
+  ansible.builtin.command: "containerd config dump"
+  register: containerd_config_check
+  changed_when: false
+  failed_when: containerd_config_check.rc != 0
+
+- name: Confirm containerd configuration applied
+  ansible.builtin.debug:
+    msg: "containerd configured for K8s compatibility on {{ inventory_hostname }}"

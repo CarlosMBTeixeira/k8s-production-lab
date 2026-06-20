@@ -6,17 +6,20 @@
 # applying every role in the correct order.
 #
 # Roles applied (logical order):
-#   1. apt-base           → refresh apt, apply safe upgrades.
-#   2. ansible-user       → validate/create the automation user.
-#   3. disable-swap       → ensure swap is off (Kubernetes requirement).
-#   4. kernel-prereqs     → load kernel modules and set sysctls for K8s.
-#   5. containerd-install → install containerd CRI runtime.
-#                           (declares dependency on kernel-prereqs).
+#   1. apt-base             → refresh apt, apply safe upgrades.
+#   2. ansible-user         → validate/create the automation user.
+#   3. disable-swap         → ensure swap is off (Kubernetes requirement).
+#   4. kernel-prereqs       → load kernel modules and set sysctls for K8s.
+#   5. containerd-install   → install containerd CRI runtime.
+#   6. containerd-configure → configure containerd for K8s (SystemdCgroup).
 #
-# Note: containerd-install's meta/main.yml declares kernel-prereqs as a
-# dependency. Even if we removed kernel-prereqs from this list, Ansible
-# would still run it before containerd-install. Keeping it explicit
-# here clarifies intent and ensures correct ordering for other roles.
+# Role dependency chain (resolved by Ansible automatically via meta/main.yml):
+#   - containerd-install     depends on kernel-prereqs
+#   - containerd-configure   depends on containerd-install
+#
+# Even if we removed kernel-prereqs and containerd-install from this list,
+# they would still run before containerd-configure due to the dependency
+# chain. Keeping them explicit clarifies intent for human readers.
 # ============================================================================
 
 - name: Configure all K8s lab nodes (base state)
@@ -30,3 +33,4 @@
     - disable-swap
     - kernel-prereqs
     - containerd-install
+    - containerd-configure

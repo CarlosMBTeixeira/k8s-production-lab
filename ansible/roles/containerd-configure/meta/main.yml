@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata and dependencies.
+# ----------------------------------------------------------------------------
+# Configure-only role: assumes containerd is already installed. Declares
+# containerd-install as a dependency, so Ansible will install containerd
+# first if not already done.
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Configure containerd for Kubernetes compatibility (SystemdCgroup, sandbox image).
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - containerd
+    - configuration
+
+# containerd must be installed before we can configure it.
+# Ansible will run containerd-install first if not already applied.
+dependencies:
+  - role: containerd-install

@@ -1,0 +1,29 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the containerd-configure role.
+# ----------------------------------------------------------------------------
+# These configure /etc/containerd/config.toml. Override at the playbook
+# level for production-specific values (e.g., a pinned sandbox image
+# version, or a custom root directory).
+# ============================================================================
+
+# Path where containerd stores its config file.
+containerd_config_file: /etc/containerd/config.toml
+
+# CRITICAL for Kubernetes compatibility:
+# Tells containerd to use systemd as the cgroup manager (instead of cgroupfs).
+# This MUST match kubelet's cgroupDriver setting. Default in K8s is systemd
+# since v1.22; we align here.
+containerd_use_systemd_cgroup: true
+
+# The pause container image. This is the minimal container that K8s starts
+# in each pod to hold the network namespace open. Default is outdated.
+# Using the official registry.k8s.io image (latest at the time of writing).
+containerd_sandbox_image: registry.k8s.io/pause:3.10
+
+# Storage directories. Defaults from upstream containerd.
+containerd_config_root_dir: /var/lib/containerd
+containerd_config_state_dir: /run/containerd
+
+# Whether to restart containerd on config change. Almost always true.
+containerd_config_restart_on_change: true

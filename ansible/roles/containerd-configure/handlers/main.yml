@@ -1,0 +1,14 @@
+---
+# ============================================================================
+# handlers/main.yml — Handlers for the containerd-configure role.
+# ----------------------------------------------------------------------------
+# 'Restart containerd' is notified by the template task when the config
+# file changes. Handlers run ONCE at the end of the play, deferring the
+# restart until all changes are applied (so we don't restart mid-task).
+# ============================================================================
+
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    state: restarted
+    daemon_reload: true
