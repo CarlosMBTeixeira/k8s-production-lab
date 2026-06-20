@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata and dependencies.
+# ----------------------------------------------------------------------------
+# Installs Calico CNI on an already-bootstrapped K8s cluster.
+# Depends on kubeadm-init (cluster must be initialized first).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Install Calico CNI plugin on a kubeadm-bootstrapped K8s cluster.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - cni
+    - calico
+    - networking
+
+dependencies:
+  - role: kubeadm-init

@@ -836,3 +836,181 @@ upgrade,
 - Ansible `dpkg_selections` module — canonical way to set hold from
   Ansible (equivalent to `apt-mark hold`):
   https://docs.ansible.com/ansible/latest/collections/ansible/builtin/dpkg_selections_module.html
+
+  ---
+
+## ADR-016: Use Calico as the cluster CNI plugin
+
+**Date:** 2026-06-25
+**Status:** Accepted
+
+**Context:**
+A Kubernetes cluster needs a CNI (Container Network Interface) plugin
+to provide pod-to-pod networking. Without a CNI, nodes report
+`NotReady` and pods cannot be scheduled (no IP can be assigned).
+
+The CNI plugin space has several mature options, each with different
+trade-offs:
+
+- **Flannel**: simplest, VXLAN overlay. Limited features. No
+  NetworkPolicy enforcement out of the box. Often paired with another
+  tool (e.g. Canal = Calico for policy + Flannel for routing).
+- **Calico**: production-grade. Native NetworkPolicy support. BGP
+  routing option for high-performance setups. Optional eBPF mode
+  bypasses kube-proxy. Wider production adoption.
+- **Cilium**: eBPF-native, highest performance, richest observability
+  (Hubble). Steeper learning curve; more moving parts.
+- **Weave Net**: simple, mesh network. Project less actively
+  maintained as of 2024.
+
+**Decision:**
+Use Calico as the cluster CNI. Specifically version v3.28.2,
+applied via the upstream manifest from the project's GitHub releases
+(`projectcalico/calico` at the tag `v3.28.2`). The manifest is
+applied with `kubectl apply -f <URL>` rather than via the Tigera
+operator pattern, to keep the install path transparent and
+inspectable in a lab context.
+
+The pod network CIDR is fixed at 192.168.0.0/16 — the upstream
+Calico default — and is passed to `kubeadm init` via the
+KubeadmConfig file so both sides agree.
+
+**Why Calico over Flannel:**
+- Native NetworkPolicy enforcement is essential for cluster security
+  work (a syllabus item later in the lab). Adding NetworkPolicy on
+  top of Flannel later means swapping CNI mid-cluster — disruptive.
+- Career relevance: Calico is the most widely deployed CNI in
+  production Kubernetes installations as of 2025-2026.
+
+**Why Calico over Cilium:**
+- Cilium's value (eBPF, Hubble, performance) shines at scale and
+  requires deeper understanding. For a 4-node learning lab, the
+  added surface area (Hubble UI, eBPF debugging, multiple agents)
+  obscures the core K8s concepts being studied. Calico is enough
+  to learn pod networking and NetworkPolicy without distraction.
+- Cilium can be revisited as a future migration if/when the lab
+  grows beyond what Calico explains well.
+
+**Why the manifest install over the Tigera operator:**
+- The operator adds an extra control loop and CRD layer between the
+  user and the Calico configuration. In a lab, the goal is to
+  understand what's running — the operator hides that.
+- Direct `kubectl apply` shows exactly which resources are created
+  (DaemonSet, Deployment, ServiceAccounts, ClusterRoles, CRDs).
+  Easier to inspect, debug, and uninstall.
+
+**Why version pinning:**
+- v3.28.2 was the latest stable in the v3.28.x line at the time of
+  this decision and is documented as compatible with Kubernetes
+  1.31. Pinning the version prevents unexpected upgrades when
+  re-running the role months later.
+- Calico patch versions occasionally introduce regressions; only
+  upgrade after reviewing the release notes.
+
+**Trade-off:**
+- Calico without BGP and without eBPF runs in its simplest mode
+  (VXLAN-equivalent IPIP encap). This is adequate for the lab but
+  doesn't exercise Calico's most advanced features. The Ansible
+  role's `cni_calico_version` variable can be bumped later, and a
+  follow-up ADR can document the move to BGP or eBPF.
+- The single-node phase of the lab leaves the `node-role.kubernetes.io
+  /control-plane:NoSchedule` taint in place on cp-1. User workloads
+  remain `Pending` until workers join the cluster. This is correct
+  Kubernetes behavior, not a Calico limitation, but worth noting
+  here for completeness.
+
+**References:**
+- Calico documentation — quickstart for Kubernetes:
+  https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
+- Calico v3.28 release notes:
+  https://docs.tigera.io/calico/3.28/release-notes/
+- Kubernetes — Cluster Networking concepts (CNI plugin model):
+  https://kubernetes.io/docs/concepts/cluster-administration/networking/
+- Kubernetes — Installing Addons (CNI plugin selection):
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+- CNCF — CNI specification:
+  https://github.com/containernetworking/cni/blob/main/SPEC.md
+
+---
+
+## ADR-017: Distribute admin kubeconfig to a configurable list of users
+
+**Date:** 2026-06-25
+**Status:** Accepted
+
+**Context:**
+After `kubeadm init` succeeds, the cluster's admin credentials live at
+`/etc/kubernetes/admin.conf` on the primary control plane node, owned
+by `root` with mode 0600. Using `kubectl` requires either:
+
+  1. Running as root (e.g. `sudo kubectl ...`), which conflates cluster
+     admin with system root and is poor security hygiene.
+  2. Setting `KUBECONFIG=/etc/kubernetes/admin.conf` in every shell.
+  3. Copying `admin.conf` to a user's `~/.kube/config` (the path
+     `kubectl` searches by default).
+
+Option 3 is the standard practice and is the one `kubeadm init`'s own
+output instructs the operator to perform manually.
+
+A small architectural friction appears in this lab: the SSH user
+(`ubuntu`, set by Multipass cloud-init) and the Ansible automation
+user (`ansible`, created later by the `ansible-user` role) are
+distinct. A human operator typing `ssh cp-1 "kubectl get nodes"`
+connects as `ubuntu`. An Ansible playbook connects as `ansible`.
+
+Both need `kubectl` access — the operator for ad-hoc work, Ansible
+for follow-on tasks like applying the Calico manifest. Hardcoding
+one user in the `kubeadm-init` role would leave the other broken.
+
+**Decision:**
+The `kubeadm-init` role copies `admin.conf` to **both**:
+
+  1. The Ansible user's home (`/home/{{ ansible_user }}/.kube/config`).
+     This user is fixed by the role and always receives a kubeconfig
+     because subsequent role tasks (and dependent roles like
+     `cni-calico`) need it.
+
+  2. Each user in the configurable list
+     `kubeadm_init_extra_kubeconfig_users`. The list defaults to
+     `[ubuntu]` — the Multipass-default SSH user, which is also the
+     account a human reaches when typing `ssh cp-1` without further
+     SSH config tweaks.
+
+Both copies are owned by the respective user with mode 0600. The role
+does NOT create the users in the extra list; they must already exist
+on the node (typically created by cloud-init).
+
+**Why a list rather than a single extra user:**
+- Future flexibility: when a real operator account is added (e.g.
+  `cmbt1`), it can be appended to the list without role changes.
+- Single source of truth: bumping the kubeadm version or re-running
+  the role keeps every listed user's kubeconfig in sync.
+- The implementation cost is negligible (one extra loop in tasks).
+
+**Why both `ansible` AND the extra list, not one or the other:**
+- The Ansible user must have kubeconfig for the role's own
+  validation tasks (`kubectl get nodes`) and for dependent roles
+  like `cni-calico` that issue `kubectl apply`. Hardcoding this
+  separately from the operator list keeps the role's own dependency
+  explicit and unbreakable — accidentally clearing
+  `kubeadm_init_extra_kubeconfig_users` cannot leave the role
+  unable to validate itself.
+
+**Trade-off:**
+- The kubeconfig is admin-level credentials. Distributing copies
+  increases the blast radius if any of those user accounts is
+  compromised. Acceptable in a lab; production should issue
+  scoped kubeconfigs via the API server's CSR flow, not duplicate
+  admin.conf.
+- The list approach assumes "extra users" all want full admin
+  access. In a real environment, different operators would have
+  different RBAC scopes. Out of scope for this lab.
+
+**References:**
+- Kubernetes — Configure Access to Multiple Clusters (kubeconfig
+  format and search path):
+  https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/
+- kubeadm init reference — kubeconfig generation:
+  https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
+- Ansible builtin loop documentation:
+  https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_loops.html

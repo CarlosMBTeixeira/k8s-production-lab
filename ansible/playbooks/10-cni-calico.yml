@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# 10-cni-calico.yml — Install Calico CNI via the cni-calico role.
+# ----------------------------------------------------------------------------
+# Targets ONLY controlplane_primary (cp-1) because:
+#   1. Calico manifest is applied cluster-wide via 'kubectl apply'.
+#   2. The kubeconfig with API server credentials lives on cp-1.
+#
+# After this playbook completes:
+#   - calico-node DaemonSet runs on every cluster node (currently just cp-1).
+#   - calico-kube-controllers Deployment is running.
+#   - Control plane node STATUS = Ready.
+#   - CoreDNS pods transition from Pending to Running.
+#
+# Workers added later (via 'kubeadm join') will automatically get
+# calico-node pods scheduled on them by the DaemonSet.
+# ============================================================================
+
+- name: Install Calico CNI plugin
+  hosts: controlplane_primary
+  become: true
+  gather_facts: true
+
+  roles:
+    - cni-calico

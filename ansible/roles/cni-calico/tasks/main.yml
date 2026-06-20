@@ -1,0 +1,77 @@
+---
+# ============================================================================
+# tasks/main.yml — Install and verify Calico CNI on the cluster.
+# ----------------------------------------------------------------------------
+# Idempotency strategy: check whether the calico-node DaemonSet already
+# exists in kube-system. If yes → skip apply. If no → apply manifest
+# from upstream URL.
+#
+# The 'kubectl wait' commands at the end gate completion on readiness:
+# the role only finishes once Calico is actually working, not just
+# manifest-applied. This catches situations where the apply succeeds
+# but pods never become ready (image pull failures, RBAC issues, etc.).
+# ============================================================================
+
+- name: Check if Calico DaemonSet already exists
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig={{ cni_calico_kubeconfig }} get daemonset -n {{ cni_calico_namespace }} {{ cni_calico_daemonset_name }}"
+  register: cni_calico_ds_check
+  changed_when: false
+  failed_when: false
+
+- name: Apply Calico manifest from upstream URL
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig={{ cni_calico_kubeconfig }} apply -f {{ cni_calico_manifest_url }}"
+  register: cni_calico_apply_output
+  changed_when: "'created' in cni_calico_apply_output.stdout or 'configured' in cni_calico_apply_output.stdout"
+  when: cni_calico_ds_check.rc != 0
+
+- name: Display Calico apply output
+  ansible.builtin.debug:
+    var: cni_calico_apply_output.stdout_lines
+  when:
+    - cni_calico_ds_check.rc != 0
+    - cni_calico_apply_output.stdout_lines is defined
+
+- name: Wait for calico-node DaemonSet to be ready
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --kubeconfig={{ cni_calico_kubeconfig }}
+      rollout status daemonset/{{ cni_calico_daemonset_name }}
+      -n {{ cni_calico_namespace }}
+      --timeout={{ cni_calico_wait_timeout }}s
+  register: cni_calico_ds_rollout
+  changed_when: false
+
+- name: Wait for calico-kube-controllers Deployment to be ready
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --kubeconfig={{ cni_calico_kubeconfig }}
+      rollout status deployment/{{ cni_calico_deployment_name }}
+      -n {{ cni_calico_namespace }}
+      --timeout={{ cni_calico_wait_timeout }}s
+  register: cni_calico_dep_rollout
+  changed_when: false
+
+- name: Wait for control plane node to become Ready
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --kubeconfig={{ cni_calico_kubeconfig }}
+      wait --for=condition=Ready node/{{ ansible_facts['hostname'] }}
+      --timeout={{ cni_calico_wait_timeout }}s
+  register: cni_calico_node_ready
+  changed_when: false
+
+- name: Display final node status
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig={{ cni_calico_kubeconfig }} get nodes -o wide"
+  register: cni_calico_get_nodes
+  changed_when: false
+
+- name: Show node status
+  ansible.builtin.debug:
+    var: cni_calico_get_nodes.stdout_lines
+
+- name: Confirm Calico installation
+  ansible.builtin.debug:
+    msg: "Calico {{ cni_calico_version }} operational on cluster. Node {{ ansible_facts['hostname'] }} is Ready."

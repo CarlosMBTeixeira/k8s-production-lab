@@ -1,0 +1,31 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata and dependencies.
+# ----------------------------------------------------------------------------
+# Bootstraps a Kubernetes cluster. Depends on:
+#   - kubernetes-repo (kubeadm/kubelet/kubectl binaries installed)
+#   - containerd-configure (runtime ready)
+#   - All cluster prerequisites (swap off, kernel modules, sysctls)
+#
+# kubernetes-repo transitively depends on containerd-configure which
+# depends on the rest, so we just declare the topmost dependency.
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Bootstrap a Kubernetes cluster with kubeadm init.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - kubeadm
+    - bootstrap
+    - control-plane
+
+dependencies:
+  - role: kubernetes-repo

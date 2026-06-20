@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# 09-kubeadm-init.yml — Bootstrap K8s cluster via the kubeadm-init role.
+# ----------------------------------------------------------------------------
+# Targets ONLY controlplane_primary (cp-1). The cluster is bootstrapped
+# once on this node; other control plane nodes join later via
+# 'kubeadm join --control-plane'.
+#
+# After this playbook completes:
+#   - Cluster is initialized but NODE STATUS = NotReady (no CNI yet).
+#   - admin.conf is copied to ~/.kube/config on cp-1 for the ansible user.
+#   - The worker join command is saved at /etc/kubernetes/join-command-worker.sh.
+#
+# Next step: apply CNI (Calico) via playbooks/10-cni-calico.yml.
+# ============================================================================
+
+- name: Bootstrap Kubernetes cluster
+  hosts: controlplane_primary
+  become: true
+  gather_facts: true
+
+  roles:
+    - kubeadm-init

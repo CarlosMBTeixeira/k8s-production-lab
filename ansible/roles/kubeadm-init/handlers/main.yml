@@ -1,0 +1,10 @@
+---
+# ============================================================================
+# handlers/main.yml — Handlers for the kubeadm-init role.
+# ----------------------------------------------------------------------------
+# Currently empty. Could be used in the future to restart kubelet if its
+# config changes, but kubeadm manages the kubelet config directly so this
+# is rarely needed.
+# ============================================================================
+
+# No handlers defined yet.

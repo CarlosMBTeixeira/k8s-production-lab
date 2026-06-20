@@ -1,0 +1,38 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the cni-calico role.
+# ----------------------------------------------------------------------------
+# Installs Calico as the cluster's CNI plugin. Applied via raw manifest
+# from the upstream GitHub release. Idempotency is established by checking
+# for the existence of the calico-node DaemonSet in kube-system.
+#
+# Calico is chosen over Flannel/Weave for:
+#   1. Production-grade NetworkPolicy support (Flannel doesn't have it).
+#   2. Optional eBPF mode (deferred, not enabled in this lab).
+#   3. Wider adoption — career-relevant skill.
+#
+# See also: kubeadm init's --pod-network-cidr (192.168.0.0/16) MUST
+# match Calico's IPPool default.
+# ============================================================================
+
+# Calico version. v3.28.x is the latest stable for K8s 1.31.
+cni_calico_version: "v3.28.2"
+
+# Upstream manifest URL. Hardcoded here for transparency; refresh by
+# bumping the version above.
+cni_calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ cni_calico_version }}/manifests/calico.yaml"
+
+# Namespace where Calico's DaemonSet/Deployment live.
+cni_calico_namespace: "kube-system"
+
+# Names of the resources we wait for after applying.
+cni_calico_daemonset_name: "calico-node"
+cni_calico_deployment_name: "calico-kube-controllers"
+
+# Timeout (seconds) for the readiness wait. 300s = 5 min. Generous to
+# accommodate slow first-pull of Calico images (~3 images, ~200 MB).
+cni_calico_wait_timeout: 300
+
+# Path to kubeconfig used by kubectl. We use the Ansible user's copy
+# (placed there by the kubeadm-init role).
+cni_calico_kubeconfig: "/home/{{ ansible_user }}/.kube/config"

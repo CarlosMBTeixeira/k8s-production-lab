@@ -1,0 +1,55 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the kubeadm-init role.
+# ----------------------------------------------------------------------------
+# Bootstraps a Kubernetes cluster on the FIRST control plane node using
+# 'kubeadm init'. Configuration is generated from a templated KubeadmConfig
+# file (templates/kubeadm-config.yaml.j2) rather than CLI flags, for two
+# reasons:
+#
+#   1. More expressive: supports advanced options CLI flags don't.
+#   2. Version-controlled: the rendered config file is auditable.
+#
+# Idempotency: the role checks for /etc/kubernetes/admin.conf before
+# running init. If present, the role assumes the cluster is bootstrapped
+# and skips. To force re-init, run 'kubeadm reset --force' first.
+# ============================================================================
+
+# K8s version to deploy. Must match the kubeadm/kubelet/kubectl version
+# installed by the kubernetes-repo role (see its defaults).
+kubeadm_init_kubernetes_version: "v1.31.4"
+
+# Pod network CIDR. Must match what the CNI plugin (Calico) expects.
+# 192.168.0.0/16 is the Calico default.
+kubeadm_init_pod_subnet: "192.168.0.0/16"
+
+# Service network CIDR. K8s default; rarely changed.
+kubeadm_init_service_subnet: "10.96.0.0/12"
+
+# Cluster DNS domain. Pods resolve services via *.cluster.local by default.
+kubeadm_init_cluster_dns_domain: "cluster.local"
+
+# Cgroup driver. Must match containerd's setting (ADR-013). systemd is the
+# K8s recommended driver since 1.22.
+kubeadm_init_cgroup_driver: "systemd"
+
+# Container runtime endpoint. Must match where containerd listens.
+kubeadm_init_cri_socket: "unix:///var/run/containerd/containerd.sock"
+
+# Local paths used by the role.
+kubeadm_init_admin_conf: /etc/kubernetes/admin.conf
+kubeadm_init_config_file: /etc/kubernetes/kubeadm-config.yaml
+kubeadm_init_join_command_worker: /etc/kubernetes/join-command-worker.sh
+kubeadm_init_join_command_controlplane: /etc/kubernetes/join-command-controlplane.sh
+
+# Users on cp-1 who should receive a copy of the cluster admin kubeconfig
+# at ~/.kube/config. The Ansible user always gets one (for automation
+# tasks via this role). The "extra users" list lets you grant kubectl
+# access to additional accounts — typically the human operator account
+# (Multipass default is 'ubuntu').
+#
+# Each user listed here MUST already exist on the node (created by
+# cloud-init or another role). The role doesn't create users.
+kubeadm_init_kubeconfig_user: "{{ ansible_user }}"
+kubeadm_init_extra_kubeconfig_users:
+  - ubuntu
