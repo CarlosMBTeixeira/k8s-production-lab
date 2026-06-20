@@ -1014,3 +1014,90 @@ on the node (typically created by cloud-init).
   https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
 - Ansible builtin loop documentation:
   https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_loops.html
+
+  ---
+
+## ADR-018: Pin containerd config to schema v3 for containerd 2.x
+
+**Date:** 2026-06-20
+**Status:** Accepted
+
+**Context:**
+The first iteration of the `containerd-configure` role rendered a
+config.toml file with `version = 2` and the v2 plugin path layout:
+
+  [plugins."io.containerd.grpc.v1.cri"]
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+    SystemdCgroup = true
+
+This worked on first deployment when the Docker apt repo was shipping
+containerd.io v1.7.x. The package's compiled-in defaults plus the v2
+schema's CRI configuration loaded correctly and `crictl`, kubeadm,
+and kubelet all spoke CRI v1 to containerd successfully.
+
+Some time later — likely between sessions — the Docker apt repo
+promoted containerd.io to v2.2.5. From that point, fresh deployments
+of the same role produced subtly broken nodes:
+
+  - `containerd --version` reports 2.2.5
+  - `systemctl is-active containerd` returns active
+  - `ctr plugin ls` shows io.containerd.cri.v1.images and
+    io.containerd.cri.v1.runtime as 'ok'
+  - BUT `crictl version` fails with:
+      "validate CRI v1 runtime API for endpoint
+       unix:///run/containerd/containerd.sock: rpc error:
+       code = Unimplemented desc = unknown service
+       runtime.v1.RuntimeService"
+
+The failure is silent at the daemon level. The CRI plugin appears
+loaded but the gRPC service that exposes runtime.v1.RuntimeService
+is never started because containerd 2.x ignores plugin sections
+under the v2 path names. The v3 schema renamed the runtime plugin
+section from
+
+  [plugins."io.containerd.grpc.v1.cri"]                  (v2)
+
+to
+
+  [plugins.'io.containerd.cri.v1.runtime']               (v3)
+
+and split image/registry settings out into
+
+  [plugins.'io.containerd.cri.v1.images']                (v3)
+
+Containerd 2.x will accept a `version = 2` header and convert it to
+v3 in memory, BUT this conversion only handles the version field and
+selected fields. Plugin sections under the old v2 path names are
+treated as unknown plugins and ignored — silently. SystemdCgroup,
+sandbox_image, and other CRI settings written under the v2 path are
+effectively no-ops; the plugin loads with compiled defaults that
+don't expose the v1 runtime API.
+
+Symptom timing: this bug was masked during the first lab session
+because that session used a pre-2.x containerd. The "sandbox image
+inconsistent" warning that appeared during kubeadm init was the
+canary, but the cluster came up anyway and the warning was logged as
+non-blocking tech debt rather than investigated.
+
+**Decision:**
+The `containerd-configure` template explicitly sets `version = 3`
+and uses the v3 plugin path layout. All CRI runtime settings (cgroup
+driver, runtime class, apparmor) go under
+`[plugins.'io.containerd.cri.v1.runtime']`. All CRI image settings
+(sandbox image, snapshotter) go under
+`[plugins.'io.containerd.cri.v1.images']`.
+
+This pins the role to containerd 2.x compatibility. If anyone tries
+to run this role against containerd 1.x (now unlikely from Docker
+repo, possible from Ubuntu's archive), the v3 schema will be
+rejected with a parse error rather than loading silently broken.
+Failing loud is the goal.
+
+**Why not generate from `containerd config default`:**
+- The output of `containerd config default` includes ~150 lines of
+  defaults. Most aren't relevant to our needs.
+- The format and contents of the default output change between
+  patch versions of containerd, which would constantly produce
+  diffs in our Ansible run output. The role would never report
+  changed=0 even
