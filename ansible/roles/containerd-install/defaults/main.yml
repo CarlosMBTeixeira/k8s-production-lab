@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the containerd-install role.
+# ----------------------------------------------------------------------------
+# Installs containerd via the official Docker apt repository. Variables
+# below let you override the version, repo URL, or GPG key location.
+# ============================================================================
+
+# APT repository for Docker (which ships containerd.io). The signed-by
+# directive ties the repo to the specific GPG key we install below.
+containerd_docker_repo_url: https://download.docker.com/linux/ubuntu
+
+# Where to store the Docker GPG key (downloaded once). Path must be under
+# /etc/apt/keyrings/ per modern Debian conventions (not the old
+# /etc/apt/trusted.gpg.d/).
+containerd_docker_gpg_keyring: /etc/apt/keyrings/docker.asc
+
+# URL where the GPG key is fetched.
+containerd_docker_gpg_url: https://download.docker.com/linux/ubuntu/gpg
+
+# Whether to pin a specific containerd version. Empty = install latest.
+# Example: containerd_version: "1.7.27-1"
+containerd_version: ""
+
+# The service must be running and enabled (start at boot).
+containerd_service_state: started
+containerd_service_enabled: true

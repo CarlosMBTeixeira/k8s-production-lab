@@ -1,0 +1,18 @@
+---
+# ============================================================================
+# handlers/main.yml — Handlers for the containerd-install role.
+# ----------------------------------------------------------------------------
+# Handlers run only when a task explicitly notifies them via 'notify:'.
+# They run ONCE at the end of the play, regardless of how many tasks
+# notified them. Used to defer actions (like service restarts or cache
+# refreshes) until all changes are applied.
+# ============================================================================
+
+- name: Refresh apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    state: restarted

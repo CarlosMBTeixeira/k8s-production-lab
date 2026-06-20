@@ -1,0 +1,31 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata and dependencies.
+# ----------------------------------------------------------------------------
+# Declares that this role REQUIRES kernel-prereqs to run first. Ansible
+# automatically resolves and applies dependencies BEFORE this role's
+# tasks execute. If multiple roles in a play depend on kernel-prereqs,
+# Ansible runs it once per host (not once per dependent).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Install containerd (CRI runtime) via Docker's official apt repository.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - container
+    - containerd
+    - runtime
+
+# containerd requires the overlay and br_netfilter kernel modules to
+# function. Declaring kernel-prereqs as a dependency means Ansible will
+# ensure it runs first, automatically.
+dependencies:
+  - role: kernel-prereqs

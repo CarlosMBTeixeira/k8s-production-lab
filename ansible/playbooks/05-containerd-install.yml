@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# 05-containerd-install.yml — Install containerd via the containerd-install role.
+# ----------------------------------------------------------------------------
+# Thin wrapper. Useful for testing the role in isolation before adding it
+# to site.yml. Real orchestration is in site.yml.
+# ============================================================================
+
+- name: Install containerd on all nodes
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - containerd-install
