@@ -1,0 +1,34 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the runtime-tools role.
+# ----------------------------------------------------------------------------
+# Installs crictl, the CRI-level debugging CLI used to inspect Kubernetes
+# pods and containers from a node. Distributed as a static tarball via
+# GitHub releases (not as an apt package).
+# ============================================================================
+
+# crictl version to install. Pin explicitly for reproducibility.
+# Match the K8s version we'll install later (Week 4 plan: K8s 1.31.x).
+runtime_tools_crictl_version: "v1.31.1"
+
+# Architecture for the download. Detected automatically via filter chain.
+# x86_64 → amd64, aarch64 → arm64.
+runtime_tools_arch: "{{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+
+# Source URL template — the version and arch are interpolated in.
+runtime_tools_crictl_url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ runtime_tools_crictl_version }}/crictl-{{ runtime_tools_crictl_version }}-linux-{{ runtime_tools_arch }}.tar.gz"
+
+# SHA256 checksum for the v1.31.1 amd64 tarball. Pinning to the published
+# checksum prevents accepting a compromised download silently.
+# Source: https://github.com/kubernetes-sigs/cri-tools/releases/tag/v1.31.1
+runtime_tools_crictl_sha256_amd64: "0a03ba6b1e4c253d63627f8d210b2ea07675a8712587e697657b236d06d7d231"
+
+# Local cache and install paths.
+runtime_tools_download_dir: /tmp/crictl-install
+runtime_tools_install_dir: /usr/local/bin
+
+# crictl needs to know which socket to talk to. We point it at containerd's
+# default socket. This config file lets you run 'crictl ...' without
+# specifying --runtime-endpoint every time.
+runtime_tools_crictl_config_path: /etc/crictl.yaml
+runtime_tools_containerd_socket: "unix:///run/containerd/containerd.sock"

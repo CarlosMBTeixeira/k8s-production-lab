@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata and dependencies.
+# ----------------------------------------------------------------------------
+# runtime-tools assumes containerd is installed and running. Depends on
+# containerd-install (transitively brings in kernel-prereqs).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Install crictl (CRI debugging CLI) configured for containerd.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - containerd
+    - crictl
+    - runtime
+
+# containerd must be installed (so we have the socket to talk to).
+# Ansible will run the full chain: kernel-prereqs → containerd-install.
+dependencies:
+  - role: containerd-install

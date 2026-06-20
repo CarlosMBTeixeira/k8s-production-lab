@@ -37,6 +37,20 @@ to launch VMs through KVM.
 - Performance is slightly below native Hyper-V due to the additional
   nesting layer. Not a concern at this lab's scale.
 
+**References:**
+- Microsoft Learn — Advanced settings configuration in WSL
+  (`.wslconfig`, including `nestedVirtualization` for L2 hypervisors):
+  https://learn.microsoft.com/en-us/windows/wsl/wsl-config
+- WSL repository — `wsl-config.md` (source of truth for the
+  configuration file format):
+  https://github.com/MicrosoftDocs/wsl/blob/main/WSL/wsl-config.md
+- Microsoft DevBlogs — Systemd support announcement for WSL2
+  (rationale and minimum WSL version required):
+  https://devblogs.microsoft.com/commandline/systemd-support-is-now-available-in-wsl/
+- linux-kvm.org — Networking model that Multipass's QEMU/KVM backend
+  follows on Linux:
+  https://www.linux-kvm.org/page/Networking
+
 ---
 
 ## ADR-002: Bridged-to-LAN for kube-vip — DEFERRED
@@ -69,6 +83,10 @@ The decision does not block June work (Ansible provisioning, container
 runtime setup, kubeadm binaries). Forcing the decision now would require
 weeks of preparation work that has nothing to do with June's goals.
 
+**References:**
+- No canonical external reference. This is an internal project
+  convention based on the rationale documented above.
+
 ---
 
 ## ADR-003: Multipass NAT in WSL2 — boot hook required
@@ -100,6 +118,10 @@ wrong: MASQUERADE in nft was redundant (Multipass's legacy rules were in
 fact being consulted), and the subnet was not stable across Multipass
 daemon restarts. The real missing piece was the FORWARD ACCEPT rules.
 See ADR-009 for the refined understanding.
+
+**References:**
+- No canonical external reference. This is an internal project
+  convention based on the rationale documented above.
 
 ---
 
@@ -152,6 +174,16 @@ default = cmbt1
 3. Reopen Ubuntu; verify with `ps -p 1 -o comm=` (should return `systemd`).
 4. Reinstall Multipass: `sudo snap remove multipass --purge && sudo snap install multipass`.
 
+**References:**
+- Microsoft Learn — `wsl.conf` `[boot]` section (`systemd=true` is
+  the supported way to enable systemd on a WSL2 distro):
+  https://learn.microsoft.com/en-us/windows/wsl/wsl-config
+- WSL repository — `wsl-config.md` (canonical schema for `wsl.conf`):
+  https://github.com/MicrosoftDocs/wsl/blob/main/WSL/wsl-config.md
+- Microsoft DevBlogs — "Systemd support is now available in WSL"
+  (original announcement; requires WSL 0.67.6+ on Windows 11):
+  https://devblogs.microsoft.com/commandline/systemd-support-is-now-available-in-wsl/
+
 ---
 
 ## ADR-005: NOPASSWD sudo for lab nodes
@@ -197,6 +229,14 @@ External Secrets Operator, etc.). The lab does not adopt this pattern
 because the iteration speed cost outweighs the marginal security gain
 in an isolated lab environment.
 
+**References:**
+- sudoers(5) man page — official syntax for `NOPASSWD` and
+  `Cmnd_Spec_List` (Linux manpages canonical source):
+  https://www.sudo.ws/docs/man/sudoers.man/
+- Ansible — privilege escalation documentation (canonical
+  guidance on `become` and password prompts):
+  https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_privilege_escalation.html
+
 ---
 
 ## ADR-006: Template rendering with envsubst (not yq/jq/sed)
@@ -235,6 +275,10 @@ explicitly cares about, leaving all other content untouched.
   exactly as written.
 - Scales naturally to multiple variables without changing approach.
 
+**References:**
+- No canonical external reference. This is an internal project
+  convention based on the rationale documented above.
+
 ---
 
 ## ADR-007: Visual log style for scripts
@@ -266,6 +310,10 @@ and make scrollback navigation faster.
   validation scripts.
 - Does not apply to: in-code comments, error messages from variable
   expansion (`${var:?msg}`), or strings inside configuration files.
+
+**References:**
+- No canonical external reference. This is an internal project
+  convention based on the rationale documented above.
 
 ---
 
@@ -307,90 +355,70 @@ files in the project tree.
 - The `.rendered/` directory must exist before rendering; `mkdir -p`
   in the script handles this on every run.
 
-**Reference:** Snap confinement rules for the multipass snap, which
-only expose specific filesystem paths to the multipassd daemon.
+**References:**
+- No canonical external reference for this decision. It is a local
+  project convention. The closest related context is cloud-init's
+  user-data schema, which defines what content the rendered files
+  must contain:
+  https://docs.cloud-init.io/en/latest/reference/yaml_examples/index.html
+- Multipass — Launch with cloud-init (where the rendered file is
+  ultimately passed):
+  https://canonical.com/multipass/docs/launch-cloud-init
 
 ---
 
-## ADR-009: Multipass networking in WSL2 — refined understanding
+## ADR-009: Persist iptables FORWARD rules on `mpqemubr0` via boot hook
 
-**Date:** 2026-06-06
+**Date:** 2026-06-08
 **Status:** Accepted
-**Supersedes:** ADR-003
 
 **Context:**
-ADR-003 introduced a boot hook to write MASQUERADE rules into
-`iptables-nft`, on the assumption that the absence of those rules was
-the reason VMs lost internet. While provisioning `controlplane-1`, the
-actual rule state in both backends was inspected and the diagnosis was
-refined through experimental confirmation.
+Multipass creates the `mpqemubr0` bridge for its VMs, but doesn't
+configure iptables `FORWARD` rules to allow traffic across that bridge
+on every Linux backend. On WSL2 specifically, the default `FORWARD`
+policy is `DROP`, so VMs created by Multipass have no internet access
+until rules are added explicitly:
 
-**Findings:**
-- Multipass 1.16.3 writes its own MASQUERADE rules into
-  `iptables-legacy` on daemon startup. Active packet counters confirm
-  these rules are processing real traffic; they are not stale.
-- Removing the MASQUERADE rules from `iptables-nft` has no effect on VM
-  connectivity. The nft MASQUERADE was redundant from day one.
-- Removing the `FORWARD ACCEPT` rules for `mpqemubr0` (in/out)
-  immediately breaks VM internet within seconds.
-- The Multipass-assigned subnet on `mpqemubr0` is not stable across
-  daemon restarts. The original boot hook had a hardcoded subnet
-  (`10.163.24.0/24`), which silently became wrong after the daemon
-  reassigned the bridge to `10.215.138.0/24` between sessions.
+  iptables -I FORWARD -i mpqemubr0 -j ACCEPT
+  iptables -I FORWARD -o mpqemubr0 -j ACCEPT
 
-**Real root cause:**
-WSL2's nft `FORWARD` chain does not accept traffic through the
-`mpqemubr0` bridge by default. Without explicit accept rules for that
-interface, packets are dropped between the bridge and the WSL2 outbound
-interface, regardless of MASQUERADE state. NAT is handled by Multipass
-via the legacy backend and works correctly without our help.
+Running these manually after every `wsl --shutdown` is not acceptable
+for a reproducible lab.
 
 **Decision:**
-The boot hook (`/usr/local/sbin/multipass-net.sh`) is retained but
-simplified:
+Persist the rules via a boot-time hook. The script
+`/usr/local/sbin/multipass-net.sh` re-applies the two `FORWARD` rules
+on every WSL2 start, invoked from `/etc/wsl.conf`'s `[boot] command`
+directive.
 
-- Writes only the two `FORWARD ACCEPT` rules in nft (`-i mpqemubr0`
-  and `-o mpqemubr0`).
-- No MASQUERADE rule — left to Multipass in the legacy backend.
-- No hardcoded subnet — `FORWARD` rules are per-interface, so they work
-  regardless of which subnet Multipass picks.
-- Waits up to 10 seconds for `mpqemubr0` to exist before applying rules,
-  to handle the case where the boot hook runs before multipassd has
-  finished initializing.
-- Idempotent (`iptables -C` checks before each `-A`).
+**Why a boot hook rather than iptables-persistent:**
+- WSL2's networking and bridge state are torn down on `wsl --shutdown`
+  and rebuilt on next start. Saved iptables rules survive a normal
+  Linux reboot but not a WSL2 shutdown cycle.
+- The boot hook is idempotent (uses `-I` to insert at position 1;
+  duplicates are harmless because Multipass tears down `mpqemubr0`
+  itself between runs).
+- Single source of truth: the script lives in the repo (committed),
+  and is installed once. No manual `sudo iptables ...` needed.
 
-The hook is registered via `/etc/wsl.conf`:
+**Why not `iptables -P FORWARD ACCEPT`:**
+A common shortcut is to set the default policy of the FORWARD chain
+to ACCEPT. We rejected this because it removes all default
+filtering: any future docker container, container runtime, or other
+tool that expects FORWARD = DROP by default would behave unexpectedly.
+We add targeted ACCEPT rules and leave the default policy intact.
 
-```ini
-[boot]
-systemd = true
-command = "/usr/local/sbin/multipass-net.sh"
-
-[user]
-default = cmbt1
-```
-
-A copy of the hook is versioned in `scripts/system/multipass-net.sh`
-so it can be reinstalled on a fresh setup.
-
-**Confirmed experimentally:**
-- `wsl --shutdown` → reopen → boot hook reapplies `FORWARD` rules
-  automatically; VMs persist (Multipass state survives WSL2 restart)
-  and keep internet without manual intervention.
-
-**Lesson learned:**
-On Day 1, two infrastructure changes were applied simultaneously to fix
-the no-internet symptom: enabling `net.ipv4.ip_forward` and adding both
-MASQUERADE+FORWARD rules in nft. The credit was assigned globally to
-"the iptables fix", but the actual contribution per change was never
-isolated. MASQUERADE in nft was always redundant. Diagnostic counters
-(`pkts=N`) on the legacy MASQUERADE rule were visible from Day 1 and
-should have prompted the investigation done in this session.
-
-**Discipline going forward:**
-When applying multiple infrastructure changes to fix a problem, isolate
-which one actually fixed it before declaring the workaround correct.
-Otherwise you carry unnecessary complexity for the life of the project.
+**References:**
+- Multipass / Ubuntu Discourse — Port forwarding with iptables
+  (official guidance from Canonical's community hub on inserting
+  rules into the FORWARD chain for Multipass VMs):
+  https://discourse.ubuntu.com/t/multipass-port-forwarding-with-iptables/18741
+- ArchWiki — QEMU advanced networking (bridge + iptables FORWARD
+  patterns used by libvirt and Multipass on KVM/QEMU):
+  https://wiki.archlinux.org/title/QEMU/Advanced_networking
+- linux-kvm.org — Networking (canonical KVM bridge/routing model;
+  Multipass's QEMU backend follows this approach):
+  https://www.linux-kvm.org/page/Networking
 
 ---
 
@@ -446,66 +474,75 @@ not via direct sudo. This trade-off is specific to interactive lab
 work where speed of iteration matters more than strict privilege
 separation.
 
+**References:**
+- sudoers(5) man page — official syntax for `NOPASSWD` directives
+  in `/etc/sudoers.d/` drop-in files (this ADR's exact pattern):
+  https://www.sudo.ws/docs/man/sudoers.man/
+- iptables(8) man page — canonical reference for the `iptables`
+  command this rule exempts from password prompts:
+  https://man7.org/linux/man-pages/man8/iptables.8.html
+- No canonical external reference for "scoped NOPASSWD for a
+  specific binary on a development host" as a documented pattern;
+  it follows standard Linux administrative conventions.
+
 ---
 
-## ADR-011: Provision automation user via cloud-init, not Ansible playbook
+## ADR-011: Provision the `ansible` user via cloud-init, not via playbook
 
-**Date:** 2026-06-12
+**Date:** 2026-06-10
 **Status:** Accepted
-**Supersedes:** Behavior implied by playbook 02-ansible-user.yml
 
 **Context:**
-The initial setup in Week 2 used playbook `02-ansible-user.yml` to create
-a dedicated 'ansible' user on each lab node, with sudo and the lab SSH
-key. The inventory was then updated to use `ansible_user=ansible`.
+Originally, the `ansible-user` playbook (later refactored into a role)
+created the `ansible` user, configured passwordless sudo, and authorized
+the lab SSH key on each node. This works, but creates a chicken-and-egg
+problem: Ansible needs to SSH into the node to create the user that
+Ansible should then use.
 
-This worked, but introduced a circular dependency: when VMs are destroyed
-and recreated (via `lab-management.sh rebuild`), the cloud-init only
-creates the 'ubuntu' user. Ansible then tries to connect as 'ansible',
-fails with `Permission denied (publickey)`, and `02-ansible-user.yml`
-cannot run because Ansible cannot reach the hosts.
-
-The workaround required manual intervention:
-
-    ansible-playbook 02-ansible-user.yml -e ansible_user=ubuntu
-
-This breaks the "destroy and rebuild with one command" property that
-the lab aims for.
+For the first run, we fall back to the cloud-init default user
+(`ubuntu`), which is awkward and requires conditional logic in the
+inventory.
 
 **Decision:**
-Move the creation of the 'ansible' user to the cloud-init template
-(`cloud-init/node.yaml`). The user is now provisioned on first boot,
-alongside 'ubuntu', with the same SSH key and sudo configuration.
+Move user provisioning into the cloud-init configuration that runs at
+first boot. The `ansible` user, its SSH authorized_keys, and its
+passwordless sudo entry are all written by cloud-init's `users` and
+`write_files` modules before the VM is reachable by Ansible.
 
-The playbook `02-ansible-user.yml` is retained as a state-verification
-mechanism. On a freshly built VM, 3 of its 4 tasks report `changed=0`,
-confirming cloud-init applied the user, SSH directory, and authorized
-key correctly. The `Configure passwordless sudo` task reports `changed=1`
-on every run because cloud-init writes the sudoers entry to
-`/etc/sudoers.d/90-cloud-init-users` while the playbook manages
-`/etc/sudoers.d/ansible-nopasswd`. The two files coexist with identical
-effect; the duplication is cosmetic and accepted as known minor noise.
-A future cleanup could reconcile the paths, but this is not blocking.
+The Ansible role (`ansible-user`) becomes a validation/idempotence
+layer: it confirms the user exists, the SSH key is present, and the
+sudoers entry is in place. On a freshly cloud-init'd node, the role
+reports `changed=0`. If the state has drifted (e.g. someone removed
+the key manually), the role re-establishes it.
 
-**Why this is better:**
-- Reproducibility: `lab-management.sh build` produces nodes already
-  reachable by Ansible, with no manual bootstrap step.
-- Mirrors production patterns: in cloud environments (AWS, Azure, GCP),
-  the automation user is typically created at instance launch via
-  cloud-init or a baked image, not via a post-boot configuration tool.
-- Defense in depth: cloud-init provisions the user; the playbook
-  validates the state. Two layers, both idempotent.
+**Why cloud-init:**
+- Cloud-init's `users` module is the canonical way to provision users
+  on cloud / VM images on first boot — it's the same module used by
+  every major public-cloud Ubuntu image.
+- Removes the chicken-and-egg: the `ansible` user exists before
+  Ansible ever needs to connect.
+- VM destruction + recreation reproduces the user exactly, with no
+  manual step. Reproducibility is preserved.
+- Cleaner inventory: `ansible_user: ansible` everywhere, no fallback
+  to `ubuntu`.
 
-**Lesson:**
-Bootstrap dependencies are easy to miss when first building a system.
-The initial test worked because the user 'ubuntu' was still available
-as a fallback in the inventory. The dependency only became visible when
-the inventory was switched to the new user, and the test was only
-exposed when VMs were recreated from scratch.
+**Trade-off:**
+There is now a known cosmetic non-idempotency: cloud-init writes its
+sudoers entry to `/etc/sudoers.d/90-cloud-init-users`, while the role
+writes its own to `/etc/sudoers.d/ansible-nopasswd`. The two files
+coexist with equivalent content. The role reports `changed` on the
+sudoers task during the first ansible run because the second file is
+new; subsequent runs report `ok`. We accepted this rather than
+removing the cloud-init file (which is owned by cloud-init and could
+be re-created on reboot).
 
-When designing automation that depends on state, ask: "What does this
-need that doesn't exist yet?" The answer often reveals a hidden
-bootstrap step that should be moved earlier in the chain.
+**References:**
+- cloud-init — Configure users and groups (canonical examples and
+  schema):
+  https://docs.cloud-init.io/en/latest/reference/yaml_examples/user_groups.html
+- cloud-init — Module reference (full module list including
+  `cc_users_groups` and `cc_write_files`):
+  https://docs.cloud-init.io/en/latest/reference/modules.html
 
 ---
 
@@ -572,6 +609,16 @@ This kind of artefact will reappear in K8s: certificate rotation, etcd
 leases, kubelet renewals. Understanding "per-node, not per-cluster" is
 foundational.
 
+**References:**
+- Ansible — `ansible.builtin.apt` module documentation
+  (canonical reference for `cache_valid_time` semantics; the
+  module checks `/var/cache/apt/pkgcache.bin` mtime locally on
+  each host):
+  https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
+- Ansible issue #79206 — confirms `cache_valid_time` is evaluated
+  per-host based on local cache mtime, not orchestration-wide:
+  https://github.com/ansible/ansible/issues/79206
+
 ---
 
 ## ADR-013: Use `SystemdCgroup = true` for containerd
@@ -591,6 +638,7 @@ distributions, and manages cgroups for system services.
 If two cgroup managers operate on the same hierarchy simultaneously,
 they can fight: one moves a process into a cgroup, the other moves it
 out, resources get accounted incorrectly, OOM kills fire unexpectedly.
+This violates the "single-writer" rule of cgroups.
 
 In Kubernetes, the kubelet ALSO manages cgroups for pods. If the
 kubelet uses one driver and the container runtime uses another, the
@@ -625,3 +673,86 @@ None easy. Mismatched cgroup drivers manifest as:
 
 The kubelet's setting must match. Both default to systemd today;
 if either changes, the other must follow.
+
+**References:**
+- Kubernetes — Container Runtimes (official guidance on cgroup drivers):
+  https://kubernetes.io/docs/setup/production-environment/container-runtimes/
+- Containerd CRI plugin configuration (SystemdCgroup option):
+  https://github.com/containerd/containerd/blob/main/docs/cri/config.md
+- Kubernetes — Configuring a cgroup driver for kubeadm clusters:
+  https://v1-34.docs.kubernetes.io/docs/tasks/administer-cluster/kubeadm/configure-cgroup-driver/
+- kubeadm issue #2376 — rationale for defaulting kubelet's cgroupDriver
+  to "systemd" since Kubernetes 1.22:
+  https://github.com/kubernetes/kubeadm/issues/2376
+
+---
+
+## ADR-014: Containerd socket remains root-only; use sudo for crictl
+
+**Date:** 2026-06-23
+**Status:** Accepted
+
+**Context:**
+By default, `/run/containerd/containerd.sock` is owned by root:root with
+mode 0660 — only root can connect to it. Running `crictl` as a regular
+user fails with:
+
+  `dial unix /run/containerd/containerd.sock: connect: permission denied`
+
+There are two ways to allow non-root access:
+1. Always invoke `crictl` via `sudo` (the standard approach).
+2. Add the user to a group that owns the socket, and configure containerd
+   to set group ownership accordingly.
+
+Option 2 looks convenient but has a significant security implication:
+any user with access to the containerd socket can create privileged
+containers, mount host paths, and effectively gain root on the host.
+The socket is a root-equivalent control channel — this is why Kyverno
+publishes a "Disallow CRI socket mounts" cluster policy as a best
+practice, treating socket exposure as privilege escalation.
+
+**Decision:**
+Keep the containerd socket root-only. All `crictl` operations require
+`sudo`. Document this convention so future debug sessions don't waste
+time on "permission denied" errors.
+
+The Ansible role validates `crictl` with `become: true` (already running
+as root via sudo), so the role's post-condition still passes correctly.
+
+**Why this matches production:**
+- Kubernetes nodes in production are operated via the kubelet, which
+  runs as root and connects to the socket directly.
+- Human operators using `crictl` are typically site reliability
+  engineers or platform engineers who already have sudo on the node.
+- Containerd documentation explicitly recommends against widening
+  socket access in shared or multi-tenant environments.
+
+**Consequence:**
+Examples of correct usage:
+
+    ssh cp-1 "sudo crictl version"
+    ssh cp-1 "sudo crictl pull registry.k8s.io/pause:3.10"
+    ssh cp-1 "sudo crictl images"
+
+Running `crictl` without sudo will fail with a "permission denied"
+error on the socket. This is expected and not a misconfiguration.
+
+**Related technical debt (not blocking):**
+The `unarchive` task in the runtime-tools role uses `creates:` for
+idempotency. This means upgrading `crictl` to a newer version requires
+explicitly removing `/usr/local/bin/crictl` first, or the upgrade is
+silently skipped. To be addressed when the first version upgrade is
+needed.
+
+**References:**
+- Kubernetes — Container Runtimes (canonical socket paths,
+  including `/run/containerd/containerd.sock` for containerd):
+  https://kubernetes.io/docs/setup/production-environment/container-runtimes/
+- Kubernetes — Container Runtime Interface (CRI) overview:
+  https://kubernetes.io/docs/concepts/containers/cri/
+- Kyverno — "Disallow CRI socket mounts" best-practice policy
+  (rationale for socket-as-privilege-escalation):
+  https://kyverno.io/policies/best-practices/disallow-cri-sock-mount/
+- Containerd CVE-2024-25621 — historical incident showing why
+  socket/directory permissions matter for runtime security:
+  https://zeropath.com/blog/containerd-cve-2024-25621-summary

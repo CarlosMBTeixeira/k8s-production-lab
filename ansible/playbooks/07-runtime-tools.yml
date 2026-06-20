@@ -1,0 +1,16 @@
+---
+# ============================================================================
+# 07-runtime-tools.yml — Install runtime debugging tools via the role.
+# ----------------------------------------------------------------------------
+# Thin wrapper. Real logic is in roles/runtime-tools/.
+# Dependency chain (resolved automatically):
+#   kernel-prereqs → containerd-install → runtime-tools
+# ============================================================================
+
+- name: Install CRI runtime tools (crictl)
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - runtime-tools

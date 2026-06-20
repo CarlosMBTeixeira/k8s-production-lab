@@ -1,0 +1,63 @@
+---
+# ============================================================================
+# tasks/main.yml — Install crictl (CRI-level container debugging CLI).
+# ----------------------------------------------------------------------------
+# crictl is distributed as a static binary tarball via GitHub releases.
+# Steps:
+#   1. Confirm runc is available (came with containerd.io).
+#   2. Download the crictl tarball with SHA256 verification.
+#   3. Extract crictl to /usr/local/bin.
+#   4. Write /etc/crictl.yaml so the CLI uses containerd's socket.
+#   5. Validate by running 'crictl version'.
+# ============================================================================
+
+- name: Confirm runc is installed (came with containerd.io)
+  ansible.builtin.command: runc --version
+  register: runc_version_check
+  changed_when: false
+  failed_when: runc_version_check.rc != 0
+
+- name: Ensure download directory exists
+  ansible.builtin.file:
+    path: "{{ runtime_tools_download_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Download crictl tarball with SHA256 verification
+  ansible.builtin.get_url:
+    url: "{{ runtime_tools_crictl_url }}"
+    dest: "{{ runtime_tools_download_dir }}/crictl.tar.gz"
+    mode: '0644'
+    checksum: "sha256:{{ runtime_tools_crictl_sha256_amd64 }}"
+
+- name: Extract crictl into /usr/local/bin
+  ansible.builtin.unarchive:
+    src: "{{ runtime_tools_download_dir }}/crictl.tar.gz"
+    dest: "{{ runtime_tools_install_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+    creates: "{{ runtime_tools_install_dir }}/crictl"
+
+- name: Configure crictl to use containerd socket
+  ansible.builtin.copy:
+    content: |
+      runtime-endpoint: {{ runtime_tools_containerd_socket }}
+      image-endpoint: {{ runtime_tools_containerd_socket }}
+      timeout: 10
+      debug: false
+    dest: "{{ runtime_tools_crictl_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Validate crictl can reach containerd
+  ansible.builtin.command: crictl version
+  register: crictl_version_check
+  changed_when: false
+  failed_when: crictl_version_check.rc != 0
+
+- name: Confirm runtime tools installed
+  ansible.builtin.debug:
+    msg: "runtime-tools (crictl + runc) operational on {{ inventory_hostname }}"

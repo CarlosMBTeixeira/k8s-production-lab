@@ -2,24 +2,16 @@
 # ============================================================================
 # site.yml — Master playbook for the K8s lab.
 # ----------------------------------------------------------------------------
-# Orchestrates the full base-state configuration of all lab nodes by
-# applying every role in the correct order.
+# Orchestrates the full base-state configuration of all lab nodes.
 #
 # Roles applied (logical order):
 #   1. apt-base             → refresh apt, apply safe upgrades.
 #   2. ansible-user         → validate/create the automation user.
 #   3. disable-swap         → ensure swap is off (Kubernetes requirement).
-#   4. kernel-prereqs       → load kernel modules and set sysctls for K8s.
+#   4. kernel-prereqs       → load kernel modules and set sysctls.
 #   5. containerd-install   → install containerd CRI runtime.
 #   6. containerd-configure → configure containerd for K8s (SystemdCgroup).
-#
-# Role dependency chain (resolved by Ansible automatically via meta/main.yml):
-#   - containerd-install     depends on kernel-prereqs
-#   - containerd-configure   depends on containerd-install
-#
-# Even if we removed kernel-prereqs and containerd-install from this list,
-# they would still run before containerd-configure due to the dependency
-# chain. Keeping them explicit clarifies intent for human readers.
+#   7. runtime-tools        → install crictl for CRI-level debugging.
 # ============================================================================
 
 - name: Configure all K8s lab nodes (base state)
@@ -34,3 +26,4 @@
     - kernel-prereqs
     - containerd-install
     - containerd-configure
+    - runtime-tools
