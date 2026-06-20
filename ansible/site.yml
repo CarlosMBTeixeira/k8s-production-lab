@@ -12,6 +12,7 @@
 #   5. containerd-install   → install containerd CRI runtime.
 #   6. containerd-configure → configure containerd for K8s (SystemdCgroup).
 #   7. runtime-tools        → install crictl for CRI-level debugging.
+#   8. kubernetes-repo      → install kubeadm/kubelet/kubectl (pinned + held).
 # ============================================================================
 
 - name: Configure all K8s lab nodes (base state)
@@ -27,3 +28,4 @@
     - containerd-install
     - containerd-configure
     - runtime-tools
+    - kubernetes-repo

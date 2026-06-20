@@ -563,8 +563,7 @@ revealed neither: it's an artefact of how `cache_valid_time` works.
 
 **Mechanism:**
 The Ansible `apt` module uses the mtime of `/var/cache/apt/pkgcache.bin`
-to decide whether to refresh the cache. If `(now - mtime) 
-cache_valid_time`, the task reports `ok`. Otherwise it runs `apt-get
+to decide whether to refresh the cache. If `(now - mtime) < cache_valid_time`, the task reports `ok`. Otherwise it runs `apt-get
 update`, which updates the mtime, and reports `changed`.
 
 In a 4-VM lab, the cloud-init `apt update` runs sequentially across
@@ -756,3 +755,84 @@ needed.
 - Containerd CVE-2024-25621 — historical incident showing why
   socket/directory permissions matter for runtime security:
   https://zeropath.com/blog/containerd-cve-2024-25621-summary
+
+---
+
+## ADR-015: Pin Kubernetes packages with `apt-mark hold`
+
+**Date:** 2026-06-24
+**Status:** Accepted
+
+**Context:**
+The official Kubernetes apt repository releases new patch versions
+frequently (often weekly) and minor versions quarterly. Running `apt
+upgrade` on a node would silently bump `kubeadm`, `kubelet`, and
+`kubectl` to the latest available version.
+
+In Kubernetes, version skew between nodes — particularly between the
+kubelet on a node and the control plane it talks to — is tightly
+constrained. The supported skew is +/- 2 minor versions for kubelet
+relative to the API server, and even smaller for some components.
+A silent upgrade can break:
+
+- API compatibility (kubelet talks to API server with new RPC fields
+  the server doesn't understand, or vice versa).
+- Certificate handling (cert rotation behavior changes between versions).
+- Pod scheduling (feature gates flip default values).
+- etcd format (rare, but happens at major boundaries).
+
+Production K8s upgrade flows are deliberately staged: drain a node,
+upgrade its binaries, rejoin, validate, move to the next. Allowing
+`apt upgrade` to do this implicitly is a recipe for partial cluster
+failure during routine OS maintenance.
+
+**Decision:**
+Pin `kubeadm`, `kubelet`, and `kubectl` to an exact version via the
+Kubernetes apt repository, then mark all three as `hold` in dpkg so
+they are not modified by `apt upgrade` or `unattended-upgrades`.
+
+Implementation:
+- Install with explicit version: `kubeadm=1.31.4-1.1` (and similar
+  for the other two packages).
+- Apply hold via Ansible's `dpkg_selections` module with
+  `selection: hold`. Equivalent to `apt-mark hold <package>`.
+
+The upgrade path is then explicit and intentional: when ready to
+upgrade,
+
+  1. `apt-mark unhold kubeadm kubelet kubectl`
+  2. Update the Kubernetes apt repository URL to the new minor version
+     (e.g., `v1.31` → `v1.32`).
+  3. `apt install kubeadm=1.32.x-1.1 kubelet=1.32.x-1.1 kubectl=1.32.x-1.1`
+  4. Run `kubeadm upgrade plan` and `kubeadm upgrade apply`.
+  5. Drain, upgrade, uncordon worker nodes one by one.
+  6. `apt-mark hold` the three packages again at the new version.
+
+**Why hold over alternatives:**
+- `apt-mark hold` is the official upstream guidance in the K8s install
+  documentation. Not a workaround.
+- It's enforced at the dpkg layer, so any future tool relying on apt
+  (Ansible's `apt` module, unattended-upgrades, manual `apt upgrade`)
+  respects it transparently.
+- Other approaches (apt pinning via `/etc/apt/preferences.d/`)
+  produce the same effect but are less idiomatic and harder to inspect
+  (`apt-mark showhold` is one command).
+
+**Trade-off:**
+- Upgrades become deliberate, not automatic. This is a feature in
+  the K8s context but means a forgotten cluster may stay on an old
+  version. Acceptable for this lab; in production, a separate
+  scheduled upgrade process must exist.
+
+**References:**
+- Kubernetes — Installing kubeadm, kubelet, kubectl (official
+  guidance recommending `apt-mark hold`):
+  https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+- Kubernetes — Version skew policy (canonical reference for what
+  versions can talk to each other safely):
+  https://kubernetes.io/releases/version-skew-policy/
+- Debian apt-mark(8) man page — official `hold` semantics:
+  https://manpages.debian.org/bookworm/apt/apt-mark.8.en.html
+- Ansible `dpkg_selections` module — canonical way to set hold from
+  Ansible (equivalent to `apt-mark hold`):
+  https://docs.ansible.com/ansible/latest/collections/ansible/builtin/dpkg_selections_module.html

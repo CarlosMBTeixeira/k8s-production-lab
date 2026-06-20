@@ -1,0 +1,16 @@
+---
+# ============================================================================
+# 08-kubernetes-repo.yml — Install K8s binaries via the role.
+# ----------------------------------------------------------------------------
+# Thin wrapper. Real logic is in roles/kubernetes-repo/.
+# Dependency chain (resolved automatically):
+#   kernel-prereqs -> containerd-install -> containerd-configure -> kubernetes-repo
+# ============================================================================
+
+- name: Install Kubernetes binaries (kubeadm, kubelet, kubectl)
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - kubernetes-repo

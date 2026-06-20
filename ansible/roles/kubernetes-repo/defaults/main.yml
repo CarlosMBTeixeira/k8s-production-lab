@@ -1,0 +1,38 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the kubernetes-repo role.
+# ----------------------------------------------------------------------------
+# Installs kubeadm, kubelet, and kubectl from the official Kubernetes apt
+# repository. K8s uses per-minor-version repositories: each minor version
+# (1.30, 1.31, 1.32...) has its own URL. Upgrading minor versions requires
+# changing the repo URL, not just running 'apt upgrade'.
+# ============================================================================
+
+# K8s minor version. To upgrade later, change here AND unhold the packages.
+# Aligns with crictl v1.31.1 from runtime-tools role.
+kubernetes_minor_version: "v1.31"
+
+# Specific patch version to install. Pin exactly for reproducibility.
+# Format used by K8s apt repo: "1.31.4-1.1" (note: NOT "1.31.4").
+kubernetes_package_version: "1.31.4-1.1"
+
+# K8s apt repository URL. Note the per-minor structure.
+kubernetes_repo_url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/"
+
+# Where to install the K8s apt GPG key. /etc/apt/keyrings/ is the modern
+# location (vs the legacy /etc/apt/trusted.gpg.d/ — same convention as Docker).
+kubernetes_gpg_keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+# GPG key URL — the .gpg suffix is correct here (binary format).
+# Each minor version has its own signing key URL.
+kubernetes_gpg_url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/Release.key"
+
+# Packages to install + hold. List is fixed: K8s requires these three together.
+kubernetes_packages:
+  - kubeadm
+  - kubelet
+  - kubectl
+
+# kubelet behaviour after install. We expect it to be 'enabled' but NOT
+# 'active' until kubeadm init runs. Don't try to start the service here.
+kubernetes_kubelet_enabled: true

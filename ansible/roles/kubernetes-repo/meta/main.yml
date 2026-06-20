@@ -1,0 +1,29 @@
+---
+# ============================================================================
+# meta/main.yml — Role metadata and dependencies.
+# ----------------------------------------------------------------------------
+# kubernetes-repo requires containerd to be installed and configured
+# (kubelet talks to containerd via the CRI socket once it starts).
+# ============================================================================
+
+galaxy_info:
+  author: cmbt1
+  description: Install kubeadm, kubelet, kubectl from official Kubernetes apt repo.
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - kubernetes
+    - kubeadm
+    - kubelet
+    - kubectl
+
+# kubelet needs a working container runtime once it starts. Declaring
+# containerd-configure as the dependency pulls in the full chain:
+#   kernel-prereqs -> containerd-install -> containerd-configure
+dependencies:
+  - role: containerd-configure

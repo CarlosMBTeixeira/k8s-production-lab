@@ -1,0 +1,105 @@
+---
+# ============================================================================
+# tasks/main.yml — Install kubeadm, kubelet, kubectl from official K8s repo.
+# ----------------------------------------------------------------------------
+# Steps:
+#   1. Confirm prerequisites (curl, gnupg, ca-certificates).
+#   2. Create /etc/apt/keyrings if absent.
+#   3. Fetch the K8s GPG key (binary .gpg file).
+#   4. Add K8s apt repository via deb822_repository.
+#   5. Refresh apt cache (via handler).
+#   6. Install pinned versions of kubeadm, kubelet, kubectl.
+#   7. apt-mark hold the three packages to prevent silent upgrades.
+#   8. Enable kubelet service (but DO NOT start it — kubelet only works
+#      after 'kubeadm init' runs in a later session).
+#   9. Verify installation with version commands.
+# ============================================================================
+
+- name: Install prerequisites for HTTPS apt sources
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Ensure /etc/apt/keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Download Kubernetes GPG key
+  ansible.builtin.get_url:
+    url: "{{ kubernetes_gpg_url }}"
+    dest: /tmp/kubernetes-release.key
+    mode: '0644'
+
+- name: Dearmor Kubernetes GPG key into keyring
+  ansible.builtin.command:
+    cmd: "gpg --batch --yes --dearmor -o {{ kubernetes_gpg_keyring }} /tmp/kubernetes-release.key"
+    creates: "{{ kubernetes_gpg_keyring }}"
+
+- name: Set correct permissions on Kubernetes GPG keyring
+  ansible.builtin.file:
+    path: "{{ kubernetes_gpg_keyring }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Add Kubernetes apt repository
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: deb
+    uris: "{{ kubernetes_repo_url }}"
+    suites: " /"
+    signed_by: "{{ kubernetes_gpg_keyring }}"
+    state: present
+    enabled: true
+  notify: Refresh apt cache
+
+- name: Flush handlers (refresh cache now, before apt install needs it)
+  ansible.builtin.meta: flush_handlers
+
+- name: Install kubeadm, kubelet, kubectl (pinned version)
+  ansible.builtin.apt:
+    name: "{{ item }}={{ kubernetes_package_version }}"
+    state: present
+  loop: "{{ kubernetes_packages }}"
+
+- name: Hold kubeadm, kubelet, kubectl against silent upgrades
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ kubernetes_packages }}"
+
+- name: Enable kubelet service (do NOT start — kubeadm init will)
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: "{{ kubernetes_kubelet_enabled }}"
+
+- name: Verify kubeadm version
+  ansible.builtin.command: kubeadm version --output=short
+  register: kubeadm_version_check
+  changed_when: false
+  failed_when: kubeadm_version_check.rc != 0
+
+- name: Verify kubectl client version
+  ansible.builtin.command: kubectl version --client --output=yaml
+  register: kubectl_version_check
+  changed_when: false
+  failed_when: kubectl_version_check.rc != 0
+
+- name: Verify kubelet binary version
+  ansible.builtin.command: kubelet --version
+  register: kubelet_version_check
+  changed_when: false
+  failed_when: kubelet_version_check.rc != 0
+
+- name: Confirm K8s tools installed
+  ansible.builtin.debug:
+    msg: "K8s tools installed on {{ inventory_hostname }}: {{ kubeadm_version_check.stdout }}"

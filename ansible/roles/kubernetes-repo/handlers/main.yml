@@ -1,0 +1,11 @@
+---
+# ============================================================================
+# handlers/main.yml — Handlers for kubernetes-repo role.
+# ----------------------------------------------------------------------------
+# 'Refresh apt cache' is notified by the deb822_repository task when the
+# repo is added or changed. Flushed immediately before the package install.
+# ============================================================================
+
+- name: Refresh apt cache
+  ansible.builtin.apt:
+    update_cache: yes
