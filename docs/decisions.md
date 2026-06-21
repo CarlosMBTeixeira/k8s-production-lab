@@ -1268,3 +1268,138 @@ recreation. The wait closes that race without busy-polling.
 - Related ADRs:
   - ADR-013: containerd cgroupDriver=systemd (the setting being applied)
   - ADR-018: containerd v3 schema (what made the restart matter so much)
+
+---
+
+## ADR-020: Prefer inventory-resolved values over gather_facts in racy environments
+
+**Date:** 2026-06-21
+**Status:** Accepted
+
+**Context:**
+Ansible offers two distinct families of variables for referring to a
+target node's network identity:
+
+  1. Inventory-resolved values such as `ansible_host`,
+     `inventory_hostname`. These are set when Ansible parses the
+     inventory file and resolved through whatever discovery mechanism
+     the inventory uses (DNS, ~/.ssh/config, hardcoded IPs). They are
+     stable for the entire play; nothing the target node does at
+     runtime can change them.
+
+  2. Target-gathered facts such as `ansible_default_ipv4.address`,
+     `ansible_all_ipv4_addresses`. These come from Ansible running
+     `setup` on the target and inspecting `ip route`, `ip addr`, etc.
+     They are a snapshot of what the target's network stack reports
+     at the moment `gather_facts: true` runs.
+
+Both kinds appear interchangeable in calm environments. They diverge
+in environments where the target's network state changes during the
+play:
+
+  - DHCP-renew races during VM boot.
+  - Multi-homed nodes where the "default" route changes after a
+    service starts.
+  - Networking plugins (CNI, VPN clients) that add or modify
+    interfaces after boot.
+  - Containerized targets where the perceived IP differs between
+    the host network namespace and the container.
+
+This lab hit the divergence concretely: the kubeadm-init role's
+config template embedded `ansible_default_ipv4.address` into the
+kubelet's `node-ip` argument. Multipass/QEMU's DHCP behavior leaked
+a transient lease IP into gather_facts; the kubelet was started with
+an IP that didn't exist on the host at startup time. See the commit
+fix(ansible): use ansible_host instead of default_ipv4 for kubelet
+node-ip for the full incident write-up.
+
+**Decision:**
+When a template or task in this project needs to refer to a target
+node's network identity, prefer values resolved from the inventory
+over values gathered from the target. Specifically:
+
+  - For "the address Ansible is connecting through right now" use
+    `ansible_host`. This is the single source of truth that's
+    already in use by every SSH connection in the play.
+  - For "the canonical name of the target in our inventory" use
+    `inventory_hostname`. This is what we use in inventory groups
+    and what scripts/sync-ssh-config.sh writes into ~/.ssh/config.
+  - For "the target's view of its own hostname" use
+    `ansible_facts['hostname']` only when it's actually the target's
+    self-reported identity that matters (e.g. registering with an
+    API that takes the target's word for it). Multipass auto-sets
+    this to the VM name; kubeadm registers nodes by this value.
+
+Reserve `ansible_default_ipv4.address` and related gather_facts
+network values for diagnostic uses (debug messages, conditionals
+based on a transient observation). Never embed them in a config
+file that will outlive the play.
+
+**Why not switch to static inventory IPs:**
+- Multipass assigns IPs from a DHCP pool on the mpqemubr0 bridge.
+  The same VM name gets a different IP after destroy/build. Hard-
+  coding IPs in the inventory would break every rebuild and force
+  manual edits.
+- `scripts/sync-ssh-config.sh` already rewrites ~/.ssh/config after
+  every build, so the inventory's SSH aliases (cp-1, cp-2, w-1, w-2)
+  resolve to current IPs automatically. `ansible_host` follows the
+  SSH config; the indirection works.
+
+**Why not just refresh facts before the template render:**
+- An explicit `ansible.builtin.setup` task right before the
+  template would re-query the target, but it would still query
+  the same racy source. The bug would be much less likely to
+  recur in practice but the architectural smell would remain:
+  the template's correctness would depend on whether the DHCP
+  race happens to land in the right window. inventory-resolved
+  values close the race entirely.
+
+**Trade-off:**
+- `ansible_host` is whatever the operator wrote (or whatever
+  sync-ssh-config.sh wrote on their behalf). If those are wrong,
+  Ansible itself can't connect — the failure is loud and
+  immediate, not a half-broken cluster three days later. This is
+  the right failure mode.
+- A node whose actual current IP differs from `ansible_host`
+  (e.g. the operator put the wrong entry in ~/.ssh/config) will
+  produce a working kubelet that's published the wrong IP. The
+  problem becomes operator-introduced rather than environment-
+  introduced. Acceptable trade-off: operator errors are far
+  easier to diagnose than DHCP races.
+
+**Roles affected by this decision:**
+  - kubeadm-init: templates/kubeadm-config.yaml.j2 now uses
+    `ansible_host` for kubeletExtraArgs.node-ip.
+
+**Roles deliberately left as-is:**
+  - apt-base, ansible-user, disable-swap, kernel-prereqs,
+    containerd-install, containerd-configure, runtime-tools,
+    kubernetes-repo, cni-calico: none of these embed an IP into
+    a persistent artifact. No fix needed.
+
+**Diagnostic recipe (for the next time something similar happens):**
+  1. Symptom: a persistent target-side config has a value that
+     no longer matches what's on the target now.
+  2. Find the source: grep the templates and tasks for the bad
+     value's variable name.
+  3. If the variable is from `ansible_facts.*` and the value is
+     network-related, suspect a DHCP/runtime race. Switch to an
+     inventory-resolved alternative.
+  4. If no inventory-resolved alternative exists, document why
+     and add a deliberate `setup` refresh immediately before the
+     dependent task.
+
+**References:**
+- Ansible Special Variables (lists ansible_host, inventory_hostname):
+  https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html
+- Ansible setup module (gather_facts implementation):
+  https://docs.ansible.com/ansible/latest/collections/ansible/builtin/setup_module.html
+- Kubelet --node-ip flag (where this value ultimately lands):
+  https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/
+- Multipass networking (mpqemubr0, DHCP server behavior):
+  https://multipass.run/docs/configure-multipass-network
+- Related ADRs:
+  - ADR-018: containerd v3 schema (same family of "looks right in
+    the file, wrong on the wire" bugs).
+  - ADR-019: cross-role handler flush (same family of "looks like
+    it worked but the runtime state lags" bugs).
