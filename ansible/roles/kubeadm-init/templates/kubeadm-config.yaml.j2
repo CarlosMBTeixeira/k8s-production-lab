@@ -14,7 +14,14 @@ nodeRegistration:
   name: "{{ ansible_facts['hostname'] }}"
   kubeletExtraArgs:
     - name: node-ip
-      value: "{{ ansible_facts['default_ipv4']['address'] }}"
+      # Use ansible_host (the IP Ansible connects through) instead of
+      # ansible_default_ipv4.address. Multipass/QEMU can issue multiple
+      # DHCP leases during a single VM boot, and ansible_default_ipv4 may
+      # capture a transient IP that no longer exists by the time kubelet
+      # starts. ansible_host comes from the inventory (resolved via
+      # ~/.ssh/config, which sync-ssh-config.sh keeps current) and is
+      # stable for the entire play duration. See ADR-020.
+      value: "{{ ansible_host }}"
 
 ---
 # --- ClusterConfiguration ----------------------------------------------------
