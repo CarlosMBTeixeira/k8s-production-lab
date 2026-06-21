@@ -36,7 +36,7 @@ Windows 11 Home
 
 ## Status
 - [x] Day 1: WSL2 + Multipass + KVM foundation validated
-- [ ] Week 1: 4 VMs provisioned with Ansible-ready setup
-- [ ] Week 2: Ansible essentials and node prerequisites
-- [ ] Week 3: containerd installed and configured
-- [ ] Week 4: kubeadm/kubelet/kubectl ready for cluster bootstrap
+- [x] Week 1: 4 VMs provisioned with Ansible-ready setup
+- [x] Week 2: Ansible essentials and node prerequisites
+- [x] Week 3: containerd installed and configured
+- [x] Week 4: kubeadm/kubelet/kubectl ready for cluster bootstrap
