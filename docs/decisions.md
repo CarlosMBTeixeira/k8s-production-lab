@@ -1142,3 +1142,129 @@ Failing loud is the goal.
   See ADR-013 in this document.
 - Kubernetes container runtimes docs (cgroup driver requirements):
   https://kubernetes.io/docs/setup/production-environment/container-runtimes/
+
+---
+
+## ADR-019: Flush handlers between roles when downstream tasks depend on the restart
+
+**Date:** 2026-06-21
+**Status:** Accepted
+
+**Context:**
+Ansible handlers are lazy by design. When a task notifies a handler,
+the handler's execution is deferred to the end of the current play.
+The rationale is sensible: if multiple tasks all need a service
+restarted, you'd rather restart once at the end than once per
+notification. The same lazy behavior is what makes notifications
+idempotent across re-runs (no notification, no restart).
+
+This default works perfectly when:
+  - A play contains one role, OR
+  - Multiple roles in the same play don't depend on each other's
+    handler outcomes.
+
+It breaks silently when:
+  - A play runs several roles in sequence, AND
+  - A later role depends on the *runtime state* (not just the
+    *files on disk*) modified by an earlier role's handler.
+
+The lab's `site.yml` is exactly this pattern. The role order is:
+
+    apt-base -> ansible-user -> disable-swap -> kernel-prereqs
+      -> containerd-install -> containerd-configure
+      -> runtime-tools -> kubernetes-repo
+
+`containerd-configure` writes a new `/etc/containerd/config.toml`
+and notifies the `Restart containerd` handler. Default behavior:
+the handler queues, the play continues, and `runtime-tools` runs
+its `Validate crictl can reach containerd` task — which talks to
+the still-running, still-using-old-config containerd. The
+validation fails, the play aborts, the handler never runs.
+
+The first iteration of this lab's roles was developed by running
+each role's dedicated playbook independently
+(`06-containerd-configure.yml`, `07-runtime-tools.yml`, etc.). In
+that mode, every play contains exactly one role; handlers flush at
+the end of the only role; downstream roles in other playbooks
+already see the post-restart state. The bug is invisible.
+
+Running `site.yml` for the first time, on fresh VMs, surfaced the
+defect: handlers correctly notified but downstream tasks ran against
+stale runtime state. The CRI v1 endpoint problem from ADR-018 was
+already fixed (template was correct), but the fix never reached the
+running daemon during the play.
+
+**Decision:**
+When a role notifies a handler whose effect (a service restart, a
+config reload, a daemon refresh) must be observable before a
+subsequent role runs in the same play, the notifying role MUST add
+
+    - name: Flush handlers (apply <effect> immediately, before downstream roles)
+      ansible.builtin.meta: flush_handlers
+
+immediately after the notification task. The task name explains the
+intent so anyone reading the role understands why the flush exists.
+
+In addition, when the handler restarts a service that exposes a
+unix socket, a `wait_for` task on the socket path is added after
+the flush. Systemd's `restart` action returns once the unit is in
+'active' state, which can be before the daemon has finished
+re-creating its sockets. Downstream tools (kubectl, crictl, kubeadm)
+get connection-refused errors if they race against the socket
+recreation. The wait closes that race without busy-polling.
+
+**Roles updated under this decision:**
+  - containerd-configure (the role that triggered the discovery)
+
+**Roles deliberately not updated:**
+  - containerd-install: notifies the kubernetes-repo handler
+    'Refresh apt cache' but already has its own explicit
+    `meta: flush_handlers` at the right point. Pre-existing
+    correct pattern, left in place.
+  - kubeadm-init, cni-calico: no handlers cross role boundaries.
+
+**Why not switch handlers to plain tasks with `when: changed`:**
+- Loses the idempotency-by-default that handlers give. Plain tasks
+  with `when: register.changed` need explicit registration and
+  guards on every change-detection task. Handlers express intent
+  more naturally: "when this thing changes, do that thing."
+- The `flush_handlers` meta-task is the canonical Ansible idiom
+  for this exact problem. Documented in the official Ansible docs
+  for over a decade. No reason to reinvent.
+
+**Why not split site.yml into per-role playbooks:**
+- The per-role playbooks already exist (01- through 08-). The
+  monolithic site.yml exists precisely so an operator can run one
+  command and get a fully configured node base. Splitting it
+  back would push the cross-role coordination problem onto the
+  human ("run 06 first, then 07, then..."), which is exactly the
+  fragility automation is supposed to eliminate.
+
+**Trade-off:**
+- The `flush_handlers` task adds output noise — it appears in
+  every `site.yml` run even when no handler is queued (Ansible
+  prints the task name then shows nothing executing). Acceptable
+  cost for the correctness guarantee.
+- A role's contract is now subtly stronger: it promises that any
+  change to its declared state is observable when the role
+  completes. Roles depending on this role's effects can assume
+  the post-condition holds. This is good documentation discipline
+  but means roles cannot silently rely on play-end flushing.
+
+**Diagnostic recipe (for the next time something similar happens):**
+1. A handler that should have restarted a service didn't, OR
+2. A downstream task fails to observe the post-restart state.
+3. Check whether the failing task is in the same play as the
+   notifying task. If yes -> handler is queued but not yet run.
+4. Add `meta: flush_handlers` between the notification and the
+   dependent task. Add `wait_for` if the restart involves a
+   socket the dependent task connects to.
+
+**References:**
+- Ansible builtin meta module — `flush_handlers` action:
+  https://docs.ansible.com/ansible/latest/collections/ansible/builtin/meta_module.html
+- Ansible handlers documentation (lazy execution semantics):
+  https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html
+- Related ADRs:
+  - ADR-013: containerd cgroupDriver=systemd (the setting being applied)
+  - ADR-018: containerd v3 schema (what made the restart matter so much)
