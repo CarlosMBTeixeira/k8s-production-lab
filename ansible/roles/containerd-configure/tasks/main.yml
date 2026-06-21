@@ -3,13 +3,25 @@
 # tasks/main.yml — Configure containerd for Kubernetes compatibility.
 # ----------------------------------------------------------------------------
 # Replaces the default /etc/containerd/config.toml (which ships with
-# cgroupfs as the cgroup driver) with one that uses systemd. This is
-# REQUIRED for Kubernetes nodes — kubelet expects containerd to use the
-# same cgroup driver as itself (systemd by default since K8s 1.22).
+# cgroupfs as the cgroup driver and the v2 plugin schema) with a v3
+# schema config that uses systemd. This is REQUIRED for Kubernetes nodes:
+#   - kubelet expects containerd to use the same cgroup driver as itself
+#     (systemd by default since K8s 1.22). See ADR-013.
+#   - containerd 2.x ignores plugin sections written under v2 paths,
+#     silently leaving the CRI v1 runtime API endpoint unstarted.
+#     See ADR-018.
 #
-# The role uses a handler to restart containerd ONLY if the config file
-# actually changed. On idempotent re-runs, the handler is not notified
-# and containerd keeps running undisturbed.
+# Sequencing notes:
+#   The template change is followed by 'meta: flush_handlers' to force
+#   the containerd restart NOW, not at the end of the play. Without this,
+#   downstream roles (runtime-tools, kubernetes-repo, kubeadm-init) would
+#   try to talk to a containerd still running with the old in-memory
+#   config — even though the new config file is on disk.
+#
+#   The end-to-end CRI v1 validation (with crictl) lives in the
+#   runtime-tools role's 'Validate crictl can reach containerd' task.
+#   It runs immediately after this role, with crictl already installed,
+#   and will catch the same regression if the template ever breaks again.
 # ============================================================================
 
 - name: Ensure /etc/containerd directory exists
@@ -30,8 +42,17 @@
     backup: true        # Save a .bak copy if the file existed before.
   notify: Restart containerd
 
-- name: Verify config file is valid TOML
-  ansible.builtin.command: "containerd config dump"
+- name: Flush handlers (apply containerd restart immediately, before downstream roles)
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for containerd socket to be ready (after restart)
+  ansible.builtin.wait_for:
+    path: /run/containerd/containerd.sock
+    state: present
+    timeout: 10
+
+- name: Verify config file is parseable by containerd
+  ansible.builtin.command: containerd config dump
   register: containerd_config_check
   changed_when: false
   failed_when: containerd_config_check.rc != 0
