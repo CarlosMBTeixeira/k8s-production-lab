@@ -1,7 +1,7 @@
 #!/bin/bash
-# ============================================================================
-# pipeline.sh — One-shot bootstrap of the K8s lab from a clean state.
-# ----------------------------------------------------------------------------
+# ===================================================================================
+# 01_initial_cluster_setup.sh — One-shot bootstrap of the K8s lab from a clean state.
+# -----------------------------------------------------------------------------------
 # Runs the full provisioning pipeline in order:
 #   1. Launch 4 Multipass VMs via lab-management.sh + health check
 #   2. Run site.yml (apt, ansible-user, swap, kernel, containerd, K8s repo)
@@ -36,7 +36,6 @@ section() {
 launch_machines() {
     section "| Step 1/5: Launching VMs"
     bash scripts/lab-management.sh build
-    bash scripts/morning-check.sh
     ansible all -m ping
 }
 

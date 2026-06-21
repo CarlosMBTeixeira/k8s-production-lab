@@ -10,7 +10,7 @@
 # Some lines are 'info' rather than 'check': they report state visually
 # but do NOT contribute to the exit code. The git working-tree status is
 # the canonical example — having uncommitted changes is normal during
-# active development and should never block automation (e.g. pipeline.sh).
+# active development and should never block automation (e.g. 01_initial_cluster_setup.sh).
 #
 # Usage: ./scripts/morning-check.sh
 # ============================================================================
