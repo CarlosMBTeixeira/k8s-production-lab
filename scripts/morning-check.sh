@@ -7,13 +7,20 @@
 # start of every session before doing any new work, or as part of the
 # lab-management.sh build/rebuild flow.
 #
+# Some lines are 'info' rather than 'check': they report state visually
+# but do NOT contribute to the exit code. The git working-tree status is
+# the canonical example — having uncommitted changes is normal during
+# active development and should never block automation (e.g. pipeline.sh).
+#
 # Usage: ./scripts/morning-check.sh
 # ============================================================================
 
 set -uo pipefail
+
 ERRORS=0
 
 # Helper that runs a command silently and reports success or failure.
+# Failures bump ERRORS and surface in the script's exit code.
 check() {
     local name="$1"
     local cmd="$2"
@@ -25,37 +32,51 @@ check() {
     fi
 }
 
+# Helper that reports state but does NOT contribute to ERRORS. Used for
+# advisory signals where the operator should know the state but the
+# automation pipeline should not abort. Symbol is ⚠️  (warning), not ❌.
+info() {
+    local name="$1"
+    local cmd="$2"
+    if eval "$cmd" >/dev/null 2>&1; then
+        echo "  ✅ $name"
+    else
+        echo "  ⚠️  $name (informational, does not block)"
+    fi
+}
+
 echo "|---------------------------------------------------------------------------"
 echo "| Lab health check — $(date '+%H:%M %d-%m-%Y')"
 echo "|---------------------------------------------------------------------------"
 
 echo "WSL2 host:"
-#        These are $1                                 These are $2
 check "systemd is PID 1"                "[ \"\$(ps -p 1 -o comm=)\" = 'systemd' ]"
 check "Multipass daemon responding"     "multipass version"
 check "FORWARD rules on mpqemubr0"      "sudo iptables -L FORWARD -n -v | grep -q mpqemubr0"
-
 echo ""
+
 echo "VMs:"
 for vm in controlplane-1 controlplane-2 worker-1 worker-2; do
-#      This is $1                                         This is $2
     check "$vm running"                 "multipass info $vm | grep -q 'State.*Running'"
 done
-
 echo ""
+
 echo "SSH access:"
 for alias in cp-1 cp-2 w-1 w-2; do
-#          This is $1                                  This is $2
     check "ssh $alias works"            "ssh -o ConnectTimeout=5 $alias 'true'"
 done
-
 echo ""
+
 echo "Repo:"
-#      These are $1                                 These are $2
-check "git status clean"                "cd ~/k8slab && [ -z \"\$(git status --porcelain)\" ]"
+# git status clean is INFO (not a check): uncommitted changes are normal
+# during active development and must not block the pipeline. The visual
+# cue still helps the operator notice forgotten work.
+info  "git status clean"                "cd ~/k8slab && [ -z \"\$(git status --porcelain)\" ]"
+# Being out of sync with origin IS a check: it usually means the operator
+# forgot to push or pull, and continuing risks divergent history.
 check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]"
-
 echo ""
+
 echo "|---------------------------------------------------------------------------"
 if [ "$ERRORS" -eq 0 ]; then
     echo "| All checks passed. Ready for the session."
