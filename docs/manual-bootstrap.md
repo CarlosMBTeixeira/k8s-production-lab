@@ -384,6 +384,109 @@ install went wrong.
 
 ---
 
+## Phase B2 — Deploy kube-vip (HA)
+
+**Script equivalent:** `ansible-playbook ansible/playbooks/08-kube-vip.yml`
+
+Runs on cp-1 AND cp-2 (the `controlplane` group). Places a static pod
+manifest for kube-vip in ARP mode, which provides the floating VIP that
+Phase C's kubeadm init and Phase D2's cp-2 join both target instead of
+any single node's IP.
+
+Static pods are started directly by kubelet, not via `kubectl apply` —
+this matters because kube-vip has to be up and holding the VIP BEFORE
+`kubeadm init` runs, before the cluster technically exists.
+
+### Step B2.1 — Pick a VIP
+
+Must be: in the same subnet as the VMs (check `multipass list`), not
+assigned to any VM, and outside Multipass's DHCP range. Set it once,
+shared by every role that needs it, in
+`ansible/inventory/group_vars/all.yml`:
+
+```yaml
+kube_vip_vip_address: "10.215.138.200"   # example — pick a free one
+```
+
+### Step B2.2 — Render the kube-vip static pod manifest
+
+```bash
+# On cp-1 AND cp-2:
+sudo mkdir -p /etc/kubernetes/manifests
+sudo tee /etc/kubernetes/manifests/kube-vip.yaml <<EOF_INNER
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-vip
+  namespace: kube-system
+spec:
+  hostNetwork: true
+  containers:
+    - name: kube-vip
+      image: ghcr.io/kube-vip/kube-vip:v0.8.7
+      imagePullPolicy: IfNotPresent
+      args: ["manager"]
+      env:
+        - name: vip_arp
+          value: "true"
+        - name: port
+          value: "6443"
+        - name: vip_interface
+          value: "ens3"
+        - name: vip_cidr
+          value: "32"
+        - name: cp_enable
+          value: "true"
+        - name: cp_namespace
+          value: "kube-system"
+        - name: vip_leaderelection
+          value: "true"
+        - name: vip_leaseduration
+          value: "5"
+        - name: vip_renewdeadline
+          value: "3"
+        - name: vip_retryperiod
+          value: "1"
+        - name: address
+          value: "10.215.138.200"    # your VIP from Step B2.1
+      securityContext:
+        capabilities:
+          add: ["NET_ADMIN", "NET_RAW"]
+      volumeMounts:
+        - mountPath: /etc/kubernetes/admin.conf
+          name: kubeconfig
+  volumes:
+    - name: kubeconfig
+      hostPath:
+        # IMPORTANT — see ADR-022. Must be super-admin.conf, NOT
+        # admin.conf. kubeadm >=1.29's admin.conf uses a group
+        # (kubeadm:cluster-admins) only bound to cluster-admin late in
+        # 'kubeadm init', so kube-vip gets 403 doing leader election if
+        # it reads admin.conf this early. super-admin.conf keeps
+        # system:masters specifically for this kind of bootstrap tooling.
+        path: /etc/kubernetes/super-admin.conf
+        type: FileOrCreate
+EOF_INNER
+```
+
+### Verify Phase B2
+
+On cp-1, once containerd pulls the image (~10-20s):
+
+```bash
+sudo crictl ps -a | grep kube-vip
+ip -br a   # should show the VIP as a secondary address on ens3
+```
+
+**Gotcha for cp-2 specifically:** at this point cp-2 has no
+`/etc/kubernetes/super-admin.conf` at all (that file is only ever
+created by `kubeadm init`, never by `kubeadm join`), and kubelet isn't
+running on cp-2 yet either — nothing has started it. The manifest just
+sits there inert for now; that's fine. This becomes relevant again in
+Phase D2. Don't be alarmed if `crictl ps` on cp-2 shows nothing yet.
+
+---
+
 ## Phase C — Bootstrap the control plane on cp-1
 
 **Script equivalent:** `ansible-playbook ansible/playbooks/09-kubeadm-init.yml`
@@ -409,6 +512,10 @@ nodeRegistration:
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
 kubernetesVersion: "v1.31.4"
+# HA: every client (including kubeadm's own health checks) targets
+# the VIP from now on, not cp-1's individual IP. Must be up already
+# (Phase B2) before this runs.
+controlPlaneEndpoint: "10.215.138.200:6443"   # your VIP from Step B2.1
 networking:
   podSubnet: "192.168.0.0/16"
   serviceSubnet: "10.96.0.0/12"
@@ -440,7 +547,7 @@ sudo kubeadm config images pull --config /etc/kubernetes/kubeadm-config.yaml
 
 ```bash
 # On cp-1:
-sudo kubeadm init --config /etc/kubernetes/kubeadm-config.yaml | tee /tmp/kubeadm-init.log
+sudo kubeadm init --config /etc/kubernetes/kubeadm-config.yaml --upload-certs | tee /tmp/kubeadm-init.log
 ```
 
 Expected:
@@ -542,6 +649,71 @@ Expected:
   calico-node, coredns (x2), etcd-controlplane-1,
   kube-apiserver-controlplane-1, kube-controller-manager-controlplane-1,
   kube-proxy, kube-scheduler-controlplane-1.
+
+---
+
+## Phase D2 — Join cp-2 as second control plane
+
+**Script equivalent:** `ansible-playbook ansible/playbooks/11-controlplane-join.yml`
+
+Only on cp-2. Brings up a second etcd member, a second API server, and
+lets kube-vip actually do leader election between two real candidates
+instead of just one.
+
+### Step D2.1 — Copy super-admin.conf from cp-1 to cp-2 FIRST
+
+Easy to miss, and the doc exists partly because of this: `kubeadm join
+--control-plane` does NOT generate `super-admin.conf` — only `kubeadm
+init` does. Skip this and go straight to Step D2.3, and kubelet starts
+on cp-2, sees the kube-vip static pod manifest from Phase B2 pointing
+at a file that doesn't exist yet, and — because the manifest uses
+`hostPath` with `type: FileOrCreate` — CREATES AN EMPTY placeholder
+file at that path. kube-vip then crash-loops trying to parse an empty
+file as a kubeconfig. See ADR-022 and Troubleshooting below.
+
+```bash
+# From the host (or from cp-1):
+ssh cp-1 "sudo cat /etc/kubernetes/super-admin.conf" | ssh cp-2 "sudo tee /etc/kubernetes/super-admin.conf > /dev/null"
+ssh cp-2 "sudo chmod 600 /etc/kubernetes/super-admin.conf && sudo chown root:root /etc/kubernetes/super-admin.conf"
+```
+
+### Step D2.2 — Get the control-plane join command from cp-1
+
+```bash
+# On cp-1:
+sudo kubeadm init phase upload-certs --upload-certs
+# Prints a fresh certificate-key (valid 2h) — copy the last line.
+
+sudo kubeadm token create --print-join-command
+# Prints the base join command (no --control-plane flag yet).
+```
+
+Combine the two into the full command:
+kubeadm join <VIP>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash> --control-plane --certificate-key <certificate-key>
+### Step D2.3 — Run the join on cp-2
+
+```bash
+# On cp-2:
+sudo <the combined command from Step D2.2>
+```
+
+Expected: same shape of output as the original `kubeadm init` on cp-1
+(certs, kubeconfig files, kubelet-start, etc.), ending with cp-2
+joining as an additional control-plane node.
+
+### Verify Phase D2
+
+```bash
+# On cp-1:
+kubectl get nodes -o wide
+# Both controlplane-1 and controlplane-2 should show Ready,
+# ROLES=control-plane.
+
+kubectl get pods -n kube-system | grep kube-vip
+# Both kube-vip-controlplane-1 and kube-vip-controlplane-2 Running.
+# Exactly ONE holds the lease at a time:
+kubectl logs -n kube-system kube-vip-controlplane-1 | grep "assuming leadership"
+```
 
 ---
 
@@ -685,3 +857,25 @@ ssh <worker> "sudo <kubeadm join ... line>"
 EOF
 ls -la docs/manual-bootstrap.md
 wc -l docs/manual-bootstrap.md
+
+**`kube-vip` crash-loops with `403 Forbidden ... leases.coordination.k8s.io`**
+
+kube-vip is reading `/etc/kubernetes/admin.conf` instead of
+`/etc/kubernetes/super-admin.conf`. On kubeadm >= 1.29, admin.conf's
+client cert uses the `kubeadm:cluster-admins` group, only bound to
+`cluster-admin` late in `kubeadm init` — too late for kube-vip's own
+leader election, which needs to happen immediately. Fix the
+`hostPath.path` in the kube-vip manifest (Phase B2, Step B2.2) to
+point at `super-admin.conf`, then delete the pod so kubelet restarts
+it: `kubectl delete pod -n kube-system kube-vip-<node>`. See ADR-022.
+
+**`kube-vip` crash-loops on cp-2 with `no configuration has been provided`**
+
+`/etc/kubernetes/super-admin.conf` on cp-2 is a 0-byte file. This
+happens when kube-vip's manifest (with `hostPath type: FileOrCreate`)
+was deployed before `kubeadm join --control-plane` ran — kubelet
+starts during the join and creates an empty placeholder for a file
+that `kubeadm join` never generates (only `kubeadm init` does). Fix:
+copy the real file from cp-1 (Phase D2, Step D2.1), then force a
+restart: `kubectl delete pod -n kube-system kube-vip-controlplane-2`.
+See ADR-022.

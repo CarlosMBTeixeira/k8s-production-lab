@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# 08-kube-vip.yml — Deploy kube-vip static pod on all control plane nodes.
+# ----------------------------------------------------------------------------
+# MUST run BEFORE 09-kubeadm-init.yml and BEFORE 11-controlplane-join.yml.
+# Targets the 'controlplane' meta-group (cp-1 + cp-2).
+# ============================================================================
+
+- name: Deploy kube-vip static pod manifest on control plane nodes
+  hosts: controlplane
+  become: true
+  gather_facts: true
+
+  roles:
+    - kube-vip

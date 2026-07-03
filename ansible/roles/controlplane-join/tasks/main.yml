@@ -1,0 +1,120 @@
+---
+# ============================================================================
+# tasks/main.yml — Join this node as a SECONDARY control plane.
+# ----------------------------------------------------------------------------
+# Prerequisites (must already be true when this role runs):
+#   - kube-vip static pod already deployed on THIS node (playbooks/08).
+#   - cp-1 already bootstrapped + Calico installed (playbooks/09, 10).
+#   - /etc/kubernetes/join-command-controlplane.sh exists on cp-1, written
+#     by the kubeadm-init role.
+#
+# Fetches that file from cp-1 via slurp + delegate_to (no manual
+# copy-paste between terminals), then runs it locally on this node.
+# ============================================================================
+
+- name: Check if this node already joined the cluster
+  ansible.builtin.stat:
+    path: "{{ controlplane_join_marker }}"
+  register: controlplane_join_marker_stat
+
+- name: Fetch control-plane join command from the primary control plane
+  ansible.builtin.slurp:
+    src: "{{ controlplane_join_command_file }}"
+  delegate_to: "{{ groups['controlplane_primary'][0] }}"
+  register: controlplane_join_cmd_b64
+  when: not controlplane_join_marker_stat.stat.exists
+
+- name: Decode the join command
+  ansible.builtin.set_fact:
+    controlplane_join_cmd: "{{ controlplane_join_cmd_b64.content | b64decode }}"
+  when: not controlplane_join_marker_stat.stat.exists
+
+- name: Fetch super-admin.conf content from the primary control plane
+  # kubeadm join --control-plane does NOT generate super-admin.conf (only
+  # 'kubeadm init' does). If we don't place a real copy here BEFORE kubelet
+  # starts (which happens inside the join command below), kubelet's
+  # hostPath FileOrCreate mount for kube-vip creates an empty placeholder
+  # instead, and kube-vip crash-loops trying to parse it as a kubeconfig.
+  ansible.builtin.slurp:
+    src: /etc/kubernetes/super-admin.conf
+  delegate_to: "{{ groups['controlplane_primary'][0] }}"
+  register: controlplane_join_super_admin_b64
+  when: not controlplane_join_marker_stat.stat.exists
+
+- name: Write super-admin.conf on this node before kubelet starts
+  ansible.builtin.copy:
+    content: "{{ controlplane_join_super_admin_b64.content | b64decode }}"
+    dest: /etc/kubernetes/super-admin.conf
+    owner: root
+    group: root
+    mode: '0600'
+  when: not controlplane_join_marker_stat.stat.exists
+
+- name: Run kubeadm join --control-plane on this node
+  ansible.builtin.shell: |
+    set -eo pipefail
+    echo "{{ controlplane_join_cmd }}" | grep '^sudo kubeadm join' | sh
+  args:
+    executable: /bin/bash
+  register: controlplane_join_output
+  when: not controlplane_join_marker_stat.stat.exists
+  changed_when: true
+
+- name: Display join output
+  ansible.builtin.debug:
+    var: controlplane_join_output.stdout_lines
+  when:
+    - not controlplane_join_marker_stat.stat.exists
+    - controlplane_join_output.stdout_lines is defined
+
+- name: Ensure .kube directory exists for the Ansible user
+  ansible.builtin.file:
+    path: "/home/{{ controlplane_join_kubeconfig_user }}/.kube"
+    state: directory
+    owner: "{{ controlplane_join_kubeconfig_user }}"
+    group: "{{ controlplane_join_kubeconfig_user }}"
+    mode: '0755'
+
+- name: Copy admin kubeconfig to the Ansible user's home
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ controlplane_join_kubeconfig_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ controlplane_join_kubeconfig_user }}"
+    group: "{{ controlplane_join_kubeconfig_user }}"
+    mode: '0600'
+
+- name: Ensure .kube directory exists for extra users
+  ansible.builtin.file:
+    path: "/home/{{ item }}/.kube"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: '0755'
+  loop: "{{ controlplane_join_extra_kubeconfig_users }}"
+
+- name: Copy admin kubeconfig to extra users' home directories
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ item }}/.kube/config"
+    remote_src: true
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: '0600'
+  loop: "{{ controlplane_join_extra_kubeconfig_users }}"
+
+- name: Wait for this node to register and become Ready
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf
+    wait --for=condition=Ready node/{{ ansible_facts['hostname'] }}
+    --timeout=180s
+  changed_when: false
+
+- name: Show full cluster node status (from this node's view)
+  ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
+  register: controlplane_join_get_nodes
+  changed_when: false
+
+- name: Display cluster node status
+  ansible.builtin.debug:
+    var: controlplane_join_get_nodes.stdout_lines

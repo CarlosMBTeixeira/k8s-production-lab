@@ -1403,3 +1403,100 @@ file that will outlive the play.
     the file, wrong on the wire" bugs).
   - ADR-019: cross-role handler flush (same family of "looks like
     it worked but the runtime state lags" bugs).
+
+## ADR-021: kube-vip ARP mode works inside the existing Multipass NAT bridge — resolves ADR-002
+
+**Date:** 2026-07-03
+**Status:** Accepted
+
+**Context:**
+ADR-002 deferred a decision: whether kube-vip would need the lab's VMs
+bridged onto the home LAN (instead of the WSL2/Multipass internal NAT
+segment) to work. This was untested until Week 1 of July, when kube-vip
+was actually implemented for HA (2 control planes, cp-1 + cp-2).
+
+**Decision:**
+No LAN bridging needed. kube-vip in ARP mode works correctly entirely
+within the existing `mpqemubr0` NAT bridge inside WSL2. Verified
+end-to-end: `kubeadm init`/`kubeadm join --control-plane` on both nodes
+successfully reach the VIP, and `curl https://<VIP>:6443/livez` returns
+200 from the WSL2 host itself, outside any cluster node.
+
+**Rejected alternatives:**
+- **Bridged-to-LAN networking (the ADR-002 plan).** Would have required
+  reconfiguring the WSL2/Multipass network setup non-trivially. Turned
+  out to be unnecessary — the host already participates in the same L2
+  segment as the VMs via the bridge, so ARP-based failover works as-is.
+
+**Trade-offs accepted:**
+- The VIP (and the whole cluster) is still only reachable from the WSL2
+  host and the VMs themselves, not from other devices on the home LAN.
+  Acceptable — this lab is single-operator, not meant to serve traffic
+  to other machines.
+
+**References:**
+- ADR-002: Bridged-to-LAN for kube-vip — DEFERRED (this ADR closes it)
+
+---
+
+## ADR-022: kube-vip must mount super-admin.conf, not admin.conf
+
+**Date:** 2026-07-03
+**Status:** Accepted
+
+**Context:**
+kube-vip's static pod needs a kubeconfig to run leader election
+(`leases.coordination.k8s.io` in `kube-system`) before it can bring up
+the VIP. The obvious choice, `/etc/kubernetes/admin.conf`, caused two
+separate failures:
+
+1. On `kubeadm init` (cp-1): kube-vip got `403 Forbidden` doing leader
+   election as `kubernetes-admin`. Root cause: kubeadm >= 1.29 changed
+   admin.conf's client cert group from `system:masters` to
+   `kubeadm:cluster-admins`, which is only bound to the `cluster-admin`
+   ClusterRole late in the `kubeadm init` sequence (the `addons` phase).
+   Since kubeadm's own `wait-control-plane` health check also goes
+   through the VIP (because `controlPlaneEndpoint` is set), this was a
+   deadlock: kube-vip needed the binding to exist to get leader and
+   raise the VIP, but kubeadm couldn't reach that phase without the VIP
+   already up.
+
+2. On `kubeadm join --control-plane` (cp-2): a second, different bug.
+   `kubeadm join --control-plane` does NOT generate `super-admin.conf`
+   (only `kubeadm init` does). Because kube-vip's manifest uses a
+   `hostPath` volume with `type: FileOrCreate`, and the manifest is
+   deployed to cp-2 BEFORE the join runs, kubelet created an EMPTY
+   placeholder file the moment it started watching
+   `/etc/kubernetes/manifests/` during the join — and kube-vip
+   crash-looped trying to parse an empty file as a kubeconfig.
+
+**Decision:**
+- kube-vip's static pod mounts `/etc/kubernetes/super-admin.conf`
+  (which keeps `system:masters`, exists specifically for this kind of
+  bootstrap tooling) instead of `admin.conf`.
+- The `controlplane-join` role now fetches `super-admin.conf` from the
+  primary control plane (via `slurp` + `delegate_to`) and writes it to
+  the joining node BEFORE running `kubeadm join --control-plane`, so
+  the real file exists before kubelet ever starts scanning the static
+  pod manifests directory.
+
+**Rejected alternatives:**
+- **Patch admin.conf's cert to restore `system:masters`.** Fights
+  kubeadm's own hardening; fragile across kubeadm upgrades.
+- **Delay kube-vip's static pod placement until after join.** Doesn't
+  work — kube-vip has to be up BEFORE `kubeadm init`/`join` even starts
+  its own health checks, since `controlPlaneEndpoint` makes every
+  client (including kubeadm itself) target the VIP from the first
+  request.
+
+**Trade-offs accepted:**
+- `super-admin.conf` is a superuser-bypass credential sitting on disk,
+  mounted into a non-apiserver container. Accepted as a known, common
+  trade-off for kubeadm HA bootstrapping with kube-vip — this is
+  precisely why kubeadm >= 1.29 ships that file.
+
+**References:**
+- kubeadm docs: `kubeadm init phase kubeconfig` (admin.conf vs
+  super-admin.conf groups)
+- ADR-020: Prefer inventory-resolved values over gather_facts (same
+  family of "don't trust convenient defaults in racy bootstrap code")

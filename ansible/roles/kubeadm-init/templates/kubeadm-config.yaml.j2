@@ -5,8 +5,6 @@
 # ============================================================================
 
 # --- InitConfiguration -------------------------------------------------------
-# Node-specific bootstrap parameters: which CRI socket to use, what name
-# this node should register as in the cluster.
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
 nodeRegistration:
@@ -14,21 +12,20 @@ nodeRegistration:
   name: "{{ ansible_facts['hostname'] }}"
   kubeletExtraArgs:
     - name: node-ip
-      # Use ansible_host (the IP Ansible connects through) instead of
-      # ansible_default_ipv4.address. Multipass/QEMU can issue multiple
-      # DHCP leases during a single VM boot, and ansible_default_ipv4 may
-      # capture a transient IP that no longer exists by the time kubelet
-      # starts. ansible_host comes from the inventory (resolved via
-      # ~/.ssh/config, which sync-ssh-config.sh keeps current) and is
-      # stable for the entire play duration. See ADR-020.
+      # See ADR-020: ansible_host (inventory-resolved) instead of
+      # ansible_default_ipv4.address, which can capture a transient DHCP lease.
       value: "{{ ansible_host }}"
 
 ---
 # --- ClusterConfiguration ----------------------------------------------------
-# Cluster-wide settings: K8s version, networking ranges, etcd location.
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
 kubernetesVersion: "{{ kubeadm_init_kubernetes_version }}"
+# HA: every node and every 'kubeadm join --control-plane' points here
+# instead of a single node's IP. This MUST be the kube-vip VIP, and the
+# kube-vip static pod MUST already be running on this node before this
+# init runs (see playbooks/08-kube-vip.yml, which runs before 09).
+controlPlaneEndpoint: "{{ kubeadm_init_control_plane_endpoint }}:{{ kubeadm_init_control_plane_endpoint_port }}"
 networking:
   podSubnet: "{{ kubeadm_init_pod_subnet }}"
   serviceSubnet: "{{ kubeadm_init_service_subnet }}"
@@ -36,8 +33,6 @@ networking:
 
 ---
 # --- KubeletConfiguration ----------------------------------------------------
-# Kubelet-specific settings on this node. cgroupDriver MUST match
-# containerd's SystemdCgroup setting (see ADR-013).
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: "{{ kubeadm_init_cgroup_driver }}"

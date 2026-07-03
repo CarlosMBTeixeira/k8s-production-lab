@@ -1,0 +1,4 @@
+---
+# Floating VIP for the control-plane API server (kube-vip, ARP mode).
+# Deve estar no mesmo subnet das VMs, livre, fora do range DHCP do Multipass.
+kube_vip_vip_address: "10.215.138.200"

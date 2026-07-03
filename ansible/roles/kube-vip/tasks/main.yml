@@ -1,0 +1,52 @@
+---
+# ============================================================================
+# tasks/main.yml — Render the kube-vip static pod manifest.
+# ----------------------------------------------------------------------------
+# No 'kubectl apply' here on purpose: kube-vip runs as a STATIC pod, owned
+# directly by kubelet via the manifest file in /etc/kubernetes/manifests/.
+# That directory (and kubelet watching it) only becomes active once
+# 'kubeadm init' or 'kubeadm join --control-plane' starts kubelet with the
+# kubeadm-managed config — so this role only needs to drop the file; it
+# does NOT need the cluster to exist yet. That's what makes the ordering
+# (kube-vip before kubeadm-init/join) work.
+# ============================================================================
+
+- name: Assert VIP address is defined
+  ansible.builtin.assert:
+    that:
+      - kube_vip_vip_address is defined
+      - kube_vip_vip_address | length > 0
+    fail_msg: >-
+      kube_vip_vip_address is not set. Define it in ansible/group_vars/all.yml
+      before running this role (see that file's comments for how to pick a
+      free IP in the lab subnet).
+
+- name: Check if kube-vip static pod manifest already exists
+  ansible.builtin.stat:
+    path: "{{ kube_vip_manifest_path }}"
+  register: kube_vip_manifest_stat
+
+- name: Ensure /etc/kubernetes/manifests directory exists
+  ansible.builtin.file:
+    path: "{{ kube_vip_manifest_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render kube-vip static pod manifest
+  ansible.builtin.template:
+    src: kube-vip.yaml.j2
+    dest: "{{ kube_vip_manifest_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: not kube_vip_manifest_stat.stat.exists
+
+- name: Report kube-vip manifest status
+  ansible.builtin.debug:
+    msg: >-
+      kube-vip static pod manifest {{ 'already present' if kube_vip_manifest_stat.stat.exists
+      else 'rendered' }} at {{ kube_vip_manifest_path }} on {{ inventory_hostname }}
+      (VIP {{ kube_vip_vip_address }}). It starts automatically once kubelet begins
+      watching this directory during kubeadm init/join — no separate start step needed.

@@ -1,0 +1,13 @@
+---
+kube_vip_version: "v0.8.7"
+kube_vip_image: "ghcr.io/kube-vip/kube-vip:{{ kube_vip_version }}"
+kube_vip_vip_address: ""
+kube_vip_interface: "ens3"
+kube_vip_manifest_path: /etc/kubernetes/manifests/kube-vip.yaml
+
+# HA FIX: kubeadm >= 1.29 admin.conf usa o grupo 'kubeadm:cluster-admins',
+# só ligado a cluster-admin numa fase tardia do 'kubeadm init' — o que
+# causa "forbidden" na eleição de líder do kube-vip logo no arranque
+# (chicken-and-egg). super-admin.conf mantém 'system:masters' (bypass
+# total de RBAC) e existe exatamente para este tipo de bootstrap.
+kube_vip_kubeconfig_source: /etc/kubernetes/super-admin.conf

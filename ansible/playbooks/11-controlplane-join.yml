@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# 11-controlplane-join.yml — Join cp-2 as a second control plane node.
+# ----------------------------------------------------------------------------
+# Prerequisites: 08-kube-vip.yml, 09-kubeadm-init.yml, 10-cni-calico.yml
+# must have already run. Targets ONLY controlplane_secondary (cp-2).
+# ============================================================================
+
+- name: Join cp-2 as a second control plane node
+  hosts: controlplane_secondary
+  become: true
+  gather_facts: true
+
+  roles:
+    - controlplane-join

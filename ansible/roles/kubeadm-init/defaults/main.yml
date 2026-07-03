@@ -13,6 +13,13 @@
 # Idempotency: the role checks for /etc/kubernetes/admin.conf before
 # running init. If present, the role assumes the cluster is bootstrapped
 # and skips. To force re-init, run 'kubeadm reset --force' first.
+#
+# HA UPDATE (July, Semana 1): this role now sets controlPlaneEndpoint to
+# the kube-vip VIP, and generates the control-plane join command (with a
+# fresh certificate-key) that playbooks/11-controlplane-join.yml consumes
+# to bring up cp-2. Requires the kube-vip role (playbooks/08-kube-vip.yml)
+# to have already deployed the static pod on this node BEFORE this role
+# runs, otherwise controlPlaneEndpoint won't be reachable during init.
 # ============================================================================
 
 # K8s version to deploy. Must match the kubeadm/kubelet/kubectl version
@@ -35,6 +42,14 @@ kubeadm_init_cgroup_driver: "systemd"
 
 # Container runtime endpoint. Must match where containerd listens.
 kubeadm_init_cri_socket: "unix:///var/run/containerd/containerd.sock"
+
+# --- HA additions -----------------------------------------------------------
+# The stable endpoint every node (and every kubectl/kubeadm join operation)
+# talks to instead of cp-1's individual IP. Sourced from the same variable
+# the kube-vip role uses, so the two can never drift apart — set the actual
+# address once, in group_vars/all.yml.
+kubeadm_init_control_plane_endpoint: "{{ kube_vip_vip_address }}"
+kubeadm_init_control_plane_endpoint_port: 6443
 
 # Local paths used by the role.
 kubeadm_init_admin_conf: /etc/kubernetes/admin.conf

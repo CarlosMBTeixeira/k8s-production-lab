@@ -1,0 +1,16 @@
+---
+# ============================================================================
+# defaults/main.yml — Default variables for the controlplane-join role.
+# ----------------------------------------------------------------------------
+# Joins a SECONDARY control plane node (cp-2, future cp-3, ...) to a
+# cluster already bootstrapped by the kubeadm-init role on cp-1.
+#
+# Idempotency: checks for /etc/kubernetes/kubelet.conf on the target node
+# before doing anything — its presence means this node already joined.
+# ============================================================================
+
+controlplane_join_command_file: /etc/kubernetes/join-command-controlplane.sh
+controlplane_join_marker: /etc/kubernetes/kubelet.conf
+controlplane_join_kubeconfig_user: "{{ ansible_user }}"
+controlplane_join_extra_kubeconfig_users:
+  - ubuntu
