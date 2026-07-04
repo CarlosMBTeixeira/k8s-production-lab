@@ -22,3 +22,4 @@ Thumbs.db
 .env.local
 github_token.txt
 cloud-init/.rendered/
+kubernetes/admin.conf
