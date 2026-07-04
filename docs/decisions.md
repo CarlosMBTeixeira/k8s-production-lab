@@ -1524,7 +1524,7 @@ own quickstart), not nginx.
 
 This is deliberately kept OUT of the core Ansible HA bootstrap
 (kube-vip, kubeadm-init, calico). It lives in
-`scripts/03_gateway_api_metallb.sh`, run manually/optionally, because:
+`scripts/pipeline/03_gateway_api_metallb.sh`, run manually/optionally, because:
 1. CKA does not test Gateway API — no reason to add it to the mandatory
    rebuild path during Semanas 2-4 of July.
 2. It's meaningfully more infrastructure (2 more controllers, more
@@ -1548,7 +1548,7 @@ This is deliberately kept OUT of the core Ansible HA bootstrap
   actually broadcast ARP for it — the two aren't synchronized. A
   single immediate `curl` right after `Gateway.status.addresses` is
   populated can hit a real "no route to host" on a freshly rebuilt
-  cluster. `scripts/03_gateway_api_metallb.sh` retries the HTTP check
+  cluster. `scripts/pipeline/03_gateway_api_metallb.sh` retries the HTTP check
   (up to 30s) instead of trusting the address alone.
 
 **References:**
@@ -1564,7 +1564,7 @@ This is deliberately kept OUT of the core Ansible HA bootstrap
 **Status:** Accepted
 
 **Context:**
-`scripts/03_gateway_api_metallb.sh` failed with a TLS verification
+`scripts/pipeline/03_gateway_api_metallb.sh` failed with a TLS verification
 error (`x509: certificate signed by unknown authority`) after a full
 cluster rebuild, even though it had worked minutes earlier against the
 previous cluster incarnation. Root cause: every `kubeadm init`
@@ -1599,100 +1599,3 @@ effect.
 - ADR-020: Prefer inventory-resolved values over gather_facts (same
   family: don't trust state you didn't just verify, in bootstrap code)
 
-## ADR-023: Gateway API + MetalLB replaces nginx+NodePort for the bootstrap smoke test
-
-**Date:** 2026-07-04
-**Status:** Accepted
-
-**Context:**
-The original Phase F smoke test (docs/manual-bootstrap.md) used a plain
-`kubectl run nginx-test` pod + NodePort Service. Separately,
-`ingress-nginx` (the Kubernetes Ingress controller — not the `nginx`
-container image, which is unrelated and still fine) reached EOL on
-2026-03-31, with SIG-Network recommending Gateway API as the path
-forward for all new Ingress-like traffic management.
-
-**Decision:**
-Validate the cluster with Gateway API instead: MetalLB (L2/ARP mode,
-since bare-metal has no cloud LoadBalancer) provides a real external
-IP for a `Service` of type `LoadBalancer`; Envoy Gateway is the Gateway
-API reference implementation on top of it. The smoke test uses the
-official `registry.k8s.io/gateway-api/echo-basic` app (Envoy Gateway's
-own quickstart), not nginx.
-
-This is deliberately kept OUT of the core Ansible HA bootstrap
-(kube-vip, kubeadm-init, calico). It lives in
-`scripts/03_gateway_api_metallb.sh`, run manually/optionally, because:
-1. CKA does not test Gateway API — no reason to add it to the mandatory
-   rebuild path during Semanas 2-4 of July.
-2. It's meaningfully more infrastructure (2 more controllers, more
-   surface area) than the single-pod smoke test it replaces.
-
-**Rejected alternatives:**
-- **Calico's native Gateway API (Tigera Operator + Envoy Gateway).**
-  Requires Calico to have been installed via the Tigera Operator; this
-  lab installs Calico via the plain upstream manifest
-  (`cni_calico_manifest_url`), so switching would mean reinstalling
-  Calico differently. Not worth it for a smoke test.
-- **Cilium Gateway API support.** Would mean replacing the CNI
-  entirely. Out of scope.
-- **Keep nginx+NodePort.** Still technically valid (Ingress API itself
-  isn't deprecated, and this test never used Ingress anyway), but
-  Gateway API is closer to where the ecosystem is actually heading.
-
-**Trade-offs accepted:**
-- MetalLB's controller assigns an IP to the Gateway/Service
-  near-instantly, but the elected speaker still needs a moment to
-  actually broadcast ARP for it — the two aren't synchronized. A
-  single immediate `curl` right after `Gateway.status.addresses` is
-  populated can hit a real "no route to host" on a freshly rebuilt
-  cluster. `scripts/03_gateway_api_metallb.sh` retries the HTTP check
-  (up to 30s) instead of trusting the address alone.
-
-**References:**
-- Kubernetes blog: Ingress NGINX Retirement (2025-11-11)
-- Envoy Gateway Quickstart (gateway.envoyproxy.io/docs/tasks/quickstart)
-- MetalLB Configuration docs (metallb.universe.tf/configuration)
-
----
-
-## ADR-024: Scripts needing local kubectl must fetch kubeconfig themselves
-
-**Date:** 2026-07-04
-**Status:** Accepted
-
-**Context:**
-`scripts/03_gateway_api_metallb.sh` failed with a TLS verification
-error (`x509: certificate signed by unknown authority`) after a full
-cluster rebuild, even though it had worked minutes earlier against the
-previous cluster incarnation. Root cause: every `kubeadm init`
-generates a brand-new self-signed cluster CA. A kubeconfig copied from
-a previous cluster still has the OLD CA embedded, so it fails to
-validate the NEW apiserver's certificate — even though both clusters
-happen to share the same VIP/IP.
-
-**Decision:**
-Any script that needs local `kubectl`/`helm` fetches a fresh kubeconfig
-from `cp-1` as its own first step, into a repo-local, gitignored path
-(`kubernetes/admin.conf`), and exports `KUBECONFIG` for its own
-process — rather than assuming `~/.kube/config` is already valid, and
-rather than overwriting the operator's global kubeconfig as a side
-effect.
-
-**Rejected alternatives:**
-- **Document "remember to scp the kubeconfig first" as a manual step.**
-  This is exactly the kind of implicit dependency that fails silently
-  and was the whole point of automating the rest of the bootstrap.
-  Given the stated workflow (destroy + rebuild every session), this
-  would fail every single time without fail.
-- **Overwrite `~/.kube/config` directly.** Simpler, but a script
-  shouldn't silently mutate global user state as a side effect,
-  especially one that might be managing other clusters/contexts later.
-
-**Trade-offs accepted:**
-- One extra `scp` (and one extra network round-trip to cp-1) at the
-  start of every run of this script. Negligible.
-
-**References:**
-- ADR-020: Prefer inventory-resolved values over gather_facts (same
-  family: don't trust state you didn't just verify, in bootstrap code)

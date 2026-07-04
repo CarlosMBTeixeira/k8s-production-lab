@@ -23,7 +23,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NAMESPACE_DIR="${REPO_ROOT}/kubernetes/manifests/namespaces"
 API_GATEWAY_DIR="${REPO_ROOT}/kubernetes/manifests/gateway_api_metallb"
 METALLB_VERSION="v0.16.1"

@@ -14,10 +14,22 @@ for two reasons:
 
 The canonical bootstrap path is the scripts:
 ```
-./scripts/lab-management.sh build           
-./scripts/01_initial_cluster_setup.sh       
-./scripts/02_kubeadm_join.sh                
-```      
+./scripts/lab-management.sh build
+./scripts/pipeline/01_initial_cluster_setup.sh
+./scripts/pipeline/02_kubeadm_join.sh
+```
+
+Optionally, for the Gateway API + MetalLB smoke test (see ADR-023):
+
+```bash
+./scripts/pipeline/03_gateway_api_metallb.sh
+```
+
+Or run everything (VMs through Gateway API) in one go:
+
+```bash
+./scripts/pipeline/main.sh
+```
 
 This document expands what those scripts do, command by command. If
 this document and the scripts diverge, **the scripts are right**.
@@ -719,7 +731,7 @@ kubectl logs -n kube-system kube-vip-controlplane-1 | grep "assuming leadership"
 
 ## Phase E — Join the workers
 
-**Script equivalent:** `./scripts/02_kubeadm_join.sh`
+**Script equivalent:** `./scripts/pipeline/02_kubeadm_join.sh`
 
 Adds worker-1 and worker-2 to the cluster as worker nodes (no
 control-plane flag).
