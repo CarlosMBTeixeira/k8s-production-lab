@@ -150,8 +150,30 @@ apply_and_verify() {
 
     echo "  Gateway address: ${ADDR}"
     echo
-    echo "  Testing HTTP through the Gateway:"
-    curl --verbose --header "Host: www.example.com" "http://${ADDR}/get" || true
+    echo "  Waiting for MetalLB to finish announcing the IP (ARP convergence)..."
+    # The Gateway gets .status.addresses as soon as MetalLB's controller
+    # assigns the IP, but the speaker still needs to win its own
+    # per-service election and broadcast ARP for it. These two are not
+    # synchronized, so retry the actual HTTP request instead of trusting
+    # the address being set to mean "reachable".
+    HTTP_OK=false
+    for i in $(seq 1 15); do
+        if curl --silent --fail --max-time 3 --header "Host: www.example.com" "http://${ADDR}/get" > /tmp/gateway-test-response.json 2>/dev/null; then
+            HTTP_OK=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "${HTTP_OK}" = "false" ]; then
+        echo "  ERROR: Gateway address never became reachable after 30s. Check:"
+        echo "    kubectl logs -n metallb-system -l component=speaker --tail=30"
+        exit 1
+    fi
+
+    echo "  Gateway reachable. Response:"
+    cat /tmp/gateway-test-response.json
+    echo
 }
 
 fetch_kubeconfig
