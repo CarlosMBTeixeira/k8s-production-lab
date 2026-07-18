@@ -1667,3 +1667,70 @@ reproducibility principle as ADR-015.
 - cri-tools v1.35.0 release, linux-amd64 checksum (github.com/kubernetes-sigs/cri-tools/releases/tag/v1.35.0)
 
 ---
+## ADR-026: Rancher exposed via a dedicated Gateway API resource, not the smoke-test Gateway
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:**
+Rancher's Helm chart (2.14.3) requires either a classic Ingress
+controller or a Gateway API Gateway to expose its UI/API; it cannot run
+Helm-only with no exposure object at all (the Ingress/Gateway would
+stay unprogrammed). This lab has no Ingress controller (ADR-023 dropped
+ingress-nginx) but does have a working Gateway API stack: Envoy
+Gateway + MetalLB, with an existing `Gateway/eg` in the `gateway-api`
+namespace. That Gateway is unsuitable to reuse directly: it is
+downloaded fresh from the upstream Envoy Gateway quickstart.yaml and
+reapplied on every run of `scripts/pipeline/03_gateway_api_metallb.sh`
+(ADR-023), so any manual edit (e.g. adding an HTTPS listener) would be
+silently reverted on the next run. It also only has an HTTP:80
+listener; Rancher should not be served over plain HTTP.
+
+**Decision:**
+Expose Rancher through a second, hand-authored Gateway (`Gateway/rancher`,
+namespace `cattle-system`), reusing the existing `GatewayClass/eg` (same
+Envoy Gateway controller, no new controller needed) but as its own
+object — never touched by script 03. It has one HTTPS:443 listener,
+TLS-terminated, referencing a `Secret/rancher-tls` (self-signed,
+generated at runtime by `scripts/pipeline/04_rancher.sh`, never written
+to git — same "never persist generated secrets" principle as ADR-024).
+A hand-authored `HTTPRoute/rancher` attaches to that listener and routes
+to the `rancher` Service on port 80 (per Rancher's own backend-port rule
+for `service.disableHTTP=false`). Rancher is installed with
+`--set networkExposure.type=none` (Rancher creates no Ingress/Gateway
+of its own — this lab owns and manages the exposure objects) and
+`--set tls=secret` (informs Rancher it's behind a TLS-terminating
+front end we provide, matching the official "external gateway" pattern).
+Chart pinned to `--version 2.14.3` (ADR-025's target).
+Access hostname: `rancher.lab` (fake TLD, added to `/etc/hosts` locally
+— no real DNS in this lab).
+
+**Rejected alternatives:**
+- **Reuse `Gateway/eg` directly, adding an HTTPS listener to it.**
+  Rejected: that file is regenerated from upstream on every
+  `03_gateway_api_metallb.sh` run; any manual listener addition would
+  be silently lost on the next rebuild.
+- **`networkExposure.type=gateway` (let Rancher manage its own Gateway
+  end-to-end).** Simpler on paper, but the chart's exact sub-values for
+  GatewayClass selection and cert handling in this mode aren't
+  confirmed from the docs consulted here — higher risk of a
+  half-working install versus the explicitly documented BYO-Gateway
+  HTTPRoute pattern used instead.
+- **Install an Ingress controller (e.g. Traefik) just for Rancher.**
+  Adds a second class of exposure mechanism to the lab for no benefit,
+  when Gateway API already works and is the direction ADR-023 already
+  committed to.
+
+**Trade-offs accepted:**
+- A second MetalLB-assigned IP (one per Gateway is the normal Gateway
+  API pattern; not shared with the smoke-test Gateway).
+- Self-signed certificate: browsers will show a trust warning for
+  `rancher.lab` until a real CA (cert-manager, October's security
+  layer) is introduced.
+
+**References:**
+- Rancher docs: Using an External Gateway with Rancher (ranchermanager.docs.rancher.com/how-to-guides/advanced-user-guides/rancher-deployment-guides/configure-with-existing-gateway)
+- Rancher Helm Chart Options (ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/installation-references/helm-chart-options)
+- Gateway API TLS termination (gateway-api.sigs.k8s.io)
+
+---
