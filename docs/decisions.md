@@ -1734,3 +1734,33 @@ Access hostname: `rancher.lab` (fake TLD, added to `/etc/hosts` locally
 - Gateway API TLS termination (gateway-api.sigs.k8s.io)
 
 ---
+## ADR-027: Set ingress.tls.source=secret to avoid Rancher's cert-manager dependency
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:**
+The first `04_rancher.sh` run (ADR-026) failed during `helm install`:
+`no matches for kind "Issuer" in version "cert-manager.io/v1"`.
+`ingress.tls.source` (Rancher's cert-source value, separate from the
+top-level `tls` value which only governs *where* TLS terminates)
+defaults to `"rancher"`: the chart self-generates a certificate through
+cert-manager `Issuer`/`Certificate` resources. This path is templated
+regardless of `networkExposure.type`, so it still tried to run even
+though this install creates no Ingress at all. cert-manager isn't
+installed in this lab yet (planned for October's security layer).
+
+**Decision:**
+Set `--set ingress.tls.source=secret`, telling the chart the certificate
+is supplied externally (our own `Secret/rancher-tls`, already created
+and already referenced by `Gateway/rancher`'s listener) instead of
+self-generating one via cert-manager. Also correct the earlier
+`--set tls=secret` to `--set tls=ingress` — the valid value for "TLS
+terminates at the front end" per Rancher's own docs, matching our
+Gateway API setup.
+
+**References:**
+- Rancher Helm Chart Options — `ingress.tls.source` (ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/installation-references/helm-chart-options)
+- Rancher docs: TLS Settings (ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/installation-references/tls-settings)
+
+---
