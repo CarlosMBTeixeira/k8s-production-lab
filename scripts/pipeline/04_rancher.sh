@@ -95,10 +95,11 @@ install_rancher() {
         --set networkExposure.type=none \
         --set tls=ingress \
         --set ingress.tls.source=secret \
+        --set replicas=1 \
         --set bootstrapPassword="${BOOTSTRAP_PASSWORD}"
 
     echo "  Waiting for Rancher deployment to become Available (can take a few minutes on first pull)..."
-    kubectl wait --for=condition=Available --timeout=300s -n "${RANCHER_NAMESPACE}" deployment/rancher
+    kubectl wait --for=condition=Available --timeout=900s -n "${RANCHER_NAMESPACE}" deployment/rancher
 }
 
 verify() {
