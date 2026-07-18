@@ -1,0 +1,11 @@
+=== September Week 1 kickoff: cluster validated ahead of schedule — 17:40 18-07-2026 ===
+Starting September's roadmap (Rancher, ArgoCD, observability) ahead of the
+original calendar: CKA exam already passed, so no need to wait through
+the August vacation gap before moving on.
+Ran scripts/morning-check.sh: all checks passed (WSL2 host, 4 VMs, SSH,
+git in sync). Confirmed live cluster via ssh cp-1: 4/4 nodes Ready
+(controlplane-1, controlplane-2, worker-1, worker-2), v1.31.4,
+containerd 2.2.6. Calico, kube-vip, MetalLB, Envoy Gateway and the
+gateway-api backend all Running.
+Status: July Week 1 baseline confirmed alive and healthy. Starting
+September Week 1 (Rancher) from here.
