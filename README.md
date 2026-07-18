@@ -36,7 +36,10 @@ Windows 11 Home
 
 ## Status
 - [x] Day 1: WSL2 + Multipass + KVM foundation validated
-- [x] Week 1: 4 VMs provisioned with Ansible-ready setup
-- [x] Week 2: Ansible essentials and node prerequisites
-- [x] Week 3: containerd installed and configured
-- [x] Week 4: kubeadm/kubelet/kubectl ready for cluster bootstrap
+- [x] June Week 1: 4 VMs provisioned with Ansible-ready setup
+- [x] June Week 2: Ansible essentials and node prerequisites
+- [x] June Week 3: containerd installed and configured
+- [x] June Week 4: kubeadm/kubelet/kubectl ready for cluster bootstrap
+- [x] July Week 1: kubeadm HA control plane bootstrapped and validated (kube-vip VIP, 2 control planes + 2 workers, Calico CNI)
+- [x] July Week 1 (extra): Gateway API + MetalLB smoke test, replacing nginx+NodePort (ingress-nginx EOL 2026-03-31)
+- [x] July Weeks 2-4: CKA exam preparation completed, exam passed
