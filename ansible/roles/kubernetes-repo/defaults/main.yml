@@ -9,12 +9,12 @@
 # ============================================================================
 
 # K8s minor version. To upgrade later, change here AND unhold the packages.
-# Aligns with crictl v1.31.1 from runtime-tools role.
-kubernetes_minor_version: "v1.31"
+# Aligns with crictl v1.35.0 from runtime-tools role.
+kubernetes_minor_version: "v1.35"
 
 # Specific patch version to install. Pin exactly for reproducibility.
 # Format used by K8s apt repo: "1.31.4-1.1" (note: NOT "1.31.4").
-kubernetes_package_version: "1.31.4-1.1"
+kubernetes_package_version: "1.35.6-1.1"
 
 # K8s apt repository URL. Note the per-minor structure.
 kubernetes_repo_url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/"

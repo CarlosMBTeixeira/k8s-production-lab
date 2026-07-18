@@ -191,7 +191,7 @@ sudo chmod 600 /home/ansible/.ssh/authorized_keys
 
 ### Step B.3 — disable-swap role
 
-K8s 1.31 still requires swap off (or explicitly enabled via
+K8s 1.35 still requires swap off (or explicitly enabled via
 `KubeletConfiguration.failSwapOn: false`, which we don't do).
 
 ```bash
@@ -319,7 +319,7 @@ containerd). See ADR-014.
 
 ```bash
 # On each node:
-CRICTL_VERSION=v1.31.1
+CRICTL_VERSION=v1.35.0
 CRICTL_TARBALL=crictl-${CRICTL_VERSION}-linux-amd64.tar.gz
 
 sudo mkdir -p /tmp/crictl-download
@@ -355,19 +355,19 @@ apt-mark hold strategy.
 # On each node:
 sudo apt-get -y install apt-transport-https ca-certificates curl
 
-# Download the K8s 1.31 apt key:
+# Download the K8s 1.35 apt key:
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key \
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key \
     | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 sudo chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
 # Add the per-minor-version repo:
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /' \
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' \
     | sudo tee /etc/apt/sources.list.d/kubernetes.list
 
-# Install the pinned versions (1.31.4-1.1):
+# Install the pinned versions (1.35.6-1.1):
 sudo apt-get update
-sudo apt-get -y install kubeadm=1.31.4-1.1 kubelet=1.31.4-1.1 kubectl=1.31.4-1.1
+sudo apt-get -y install kubeadm=1.35.6-1.1 kubelet=1.35.6-1.1 kubectl=1.35.6-1.1
 
 # Pin them so unattended upgrades don't bump them silently:
 sudo apt-mark hold kubeadm kubelet kubectl
@@ -523,7 +523,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: "v1.31.4"
+kubernetesVersion: "v1.35.6"
 # HA: every client (including kubeadm's own health checks) targets
 # the VIP from now on, not cp-1's individual IP. Must be up already
 # (Phase B2) before this runs.
@@ -563,7 +563,7 @@ sudo kubeadm init --config /etc/kubernetes/kubeadm-config.yaml --upload-certs | 
 ```
 
 Expected:
-- `[init] Using Kubernetes version: v1.31.4`
+- `[init] Using Kubernetes version: v1.35.6`
 - Various `[certs] Generating ...` lines for PKI material.
 - `[kubelet-start] Starting the kubelet`.
 - `[kubelet-check] The kubelet is healthy after ~500ms`.
@@ -603,7 +603,7 @@ Expected:
 
 ```
 NAME             STATUS     ROLES           AGE   VERSION
-controlplane-1   NotReady   control-plane   ...   v1.31.4
+controlplane-1   NotReady   control-plane   ...   v1.35.6
 ```
 
 `NotReady` is normal at this point — there's no CNI yet, so the

@@ -24,7 +24,7 @@
 
 # K8s version to deploy. Must match the kubeadm/kubelet/kubectl version
 # installed by the kubernetes-repo role (see its defaults).
-kubeadm_init_kubernetes_version: "v1.31.4"
+kubeadm_init_kubernetes_version: "v1.35.6"
 
 # Pod network CIDR. Must match what the CNI plugin (Calico) expects.
 # 192.168.0.0/16 is the Calico default.
