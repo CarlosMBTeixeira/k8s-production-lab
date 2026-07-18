@@ -1863,4 +1863,11 @@ one local port.
 - WSL documentation — networking, localhost forwarding (learn.microsoft.com/windows/wsl/networking)
 - Gateway API — TLS configuration, per-listener hostname/SNI matching (gateway-api.sigs.k8s.io/guides/tls)
 
+
+**Cleanup (2026-07-18):** `scripts/sync-rancher-hosts.sh`, written
+during the first (abandoned) attempt at hostname-based access, was
+removed — it synced `rancher.lab` to the Gateway IP in `/etc/hosts`,
+which no longer serves any purpose now that Gateway/rancher and
+HTTPRoute/rancher accept any SNI/hostname and access goes through
+`scripts/rancher-tunnel.sh` + plain `localhost` instead.
 ---
