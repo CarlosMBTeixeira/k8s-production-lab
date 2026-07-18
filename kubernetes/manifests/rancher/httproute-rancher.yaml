@@ -1,5 +1,5 @@
-# Routes rancher.lab traffic from Gateway/rancher to the Rancher Service.
-# Backend port 80: Rancher's service.disableHTTP defaults to false. See ADR-026.
+# Routes all traffic on Gateway/rancher to the Rancher Service.
+# No 'hostnames' restriction — see gateway-rancher.yaml comment.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -9,8 +9,6 @@ spec:
   parentRefs:
     - name: rancher
       sectionName: https
-  hostnames:
-    - rancher.lab
   rules:
     - matches:
         - path:
