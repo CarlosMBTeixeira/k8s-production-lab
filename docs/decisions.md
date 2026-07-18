@@ -1802,3 +1802,65 @@ to demonstrate; the lab's HA story is the *Kubernetes* control plane
 - rancher/rancher GitHub issue #44649, "Rancher pods are restarted too often" — peerManager resync behavior under multi-replica restarts
 
 ---
+## ADR-029: Access lab UIs from Windows via SSH tunnel, not direct L3 routing
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:**
+Windows has no route to the Multipass bridge network
+(`10.215.138.0/24`) by default. Adding a Windows route via the WSL2 VM
+as gateway, plus an `iptables-legacy` ACCEPT rule for the
+Multipass-generated FORWARD chain (which by default only permits
+`ESTABLISHED,RELATED` traffic back into the bridge — the same class of
+problem ADR-002 deferred), got a packet from Windows as far as the
+target VM, but the VM's reply had no return path to the Windows-side
+source address, two hops and a NAT boundary away. Further diagnosis
+(VM routing table, `rp_filter`) was judged not worth the time for a
+personal lab.
+
+**Decision:**
+Access lab UIs from Windows via an SSH local port-forward through cp-1
+(`ssh -L <port>:<service-ip>:443 cp-1`, via `scripts/rancher-tunnel.sh`).
+This avoids cross-subnet routing entirely: the tunnel's WSL2 leg is
+already a full peer of the Multipass bridge, and the Windows leg only
+ever talks to WSL2's own `localhost`, which WSL2 forwards to Windows
+by default.
+
+One extra fix was needed: Gateway/rancher's HTTPS listener originally
+had a fixed `hostname: rancher.lab`, which Envoy Gateway uses for SNI
+matching — connecting via `localhost` sent the wrong SNI and the
+connection was closed immediately (confirmed via
+`curl --resolve rancher.lab:8443:127.0.0.1`, which succeeded with the
+right SNI, versus a bare `127.0.0.1`/`localhost` request, which
+didn't). A Windows-hosts-file workaround was tried but hit
+inconsistent Windows/VS Code Remote-WSL loopback-hostname-resolution
+behavior. The simpler, more robust fix: drop the `hostname` field from
+both `Gateway/rancher`'s listener and `HTTPRoute/rancher` entirely —
+there's only one backend on this Gateway anyway, so hostname-based
+routing adds friction with no benefit. Access is now plain
+`https://localhost:<port>/`, accepting the self-signed-cert browser
+warning.
+
+This pattern repeats for every future lab UI (ArgoCD, Grafana): one
+dedicated Gateway (no hostname restriction) + one SSH tunnel script +
+one local port.
+
+**Rejected alternative:**
+- **Direct L3 routing (Windows route + iptables-legacy ACCEPT).** Got
+  the request to the VM but not the reply back. Both the manual route
+  and the iptables rule are non-persistent (no `-p` on the route;
+  Multipass regenerates its own `iptables-legacy` rules on every
+  network re-init) and are left to expire naturally.
+- **Windows hosts file mapping a custom hostname to 127.0.0.1**, to
+  satisfy SNI while still using a friendly URL. Worked via `curl`, but
+  behaved inconsistently through the browser/VS Code Remote-WSL port
+  forwarding stack. Dropping the hostname requirement server-side was
+  simpler than chasing that inconsistency further.
+
+**References:**
+- OpenSSH `ssh` man page — `-L` local port forwarding (man.openbsd.org/ssh)
+- WSL documentation — networking, localhost forwarding (learn.microsoft.com/windows/wsl/networking)
+- Gateway API — TLS configuration, per-listener hostname/SNI matching (gateway-api.sigs.k8s.io/guides/tls)
+
+---
