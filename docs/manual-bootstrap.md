@@ -891,3 +891,88 @@ that `kubeadm join` never generates (only `kubeadm init` does). Fix:
 copy the real file from cp-1 (Phase D2, Step D2.1), then force a
 restart: `kubectl delete pod -n kube-system kube-vip-controlplane-2`.
 See ADR-022.
+
+## Phase G — Install Rancher and access it from Windows
+
+Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/rancher-tunnel.sh`.
+See ADR-026 (dedicated Gateway), ADR-027 (cert-manager dependency),
+ADR-028 (replica count), ADR-029 (SSH tunnel access, no SNI).
+
+### Step G.1 — Namespace + self-signed TLS secret
+
+```bash
+kubectl create namespace cattle-system --dry-run=client -o yaml | kubectl apply -f -
+
+TMPDIR=$(mktemp -d)
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+    -keyout "${TMPDIR}/tls.key" -out "${TMPDIR}/tls.crt" \
+    -subj "/CN=rancher.lab" -addext "subjectAltName=DNS:rancher.lab"
+kubectl create secret tls rancher-tls -n cattle-system \
+    --cert="${TMPDIR}/tls.crt" --key="${TMPDIR}/tls.key" \
+    --dry-run=client -o yaml | kubectl apply -f -
+rm -rf "${TMPDIR}"
+```
+
+The cert's CN is cosmetic now (see below) — access is via `localhost`,
+not the `rancher.lab` name the cert was issued for, so the browser
+will always show a hostname-mismatch warning alongside the
+self-signed warning. Both are expected; accept and continue.
+
+### Step G.2 — Gateway + HTTPRoute (no hostname restriction)
+
+Apply `kubernetes/manifests/rancher/gateway-rancher.yaml` and
+`httproute-rancher.yaml` (repo-tracked, hand-authored). Deliberately
+has **no** `hostname` field on either resource — ADR-029 found that
+Envoy's SNI matching on a fixed hostname breaks `localhost`-based
+access, and there's only one backend on this Gateway anyway, so
+hostname routing adds friction with zero benefit here.
+
+```bash
+kubectl apply -f kubernetes/manifests/rancher/gateway-rancher.yaml
+kubectl apply -f kubernetes/manifests/rancher/httproute-rancher.yaml
+```
+
+### Step G.3 — Install Rancher via Helm
+
+```bash
+helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+helm repo update
+helm upgrade --install rancher rancher-stable/rancher \
+    --version 2.14.3 \
+    --namespace cattle-system \
+    --set hostname=rancher.lab \
+    --set networkExposure.type=none \
+    --set tls=ingress \
+    --set ingress.tls.source=secret \
+    --set replicas=1
+```
+
+`ingress.tls.source=secret` avoids a cert-manager dependency we don't
+have yet (ADR-027). `replicas=1` is a RAM-budget choice, not a
+required fix (ADR-028) — the default 3 also works, just heavier.
+
+### Step G.4 — Access from Windows (SSH tunnel, no direct routing)
+
+Windows has no route to the Multipass bridge (`10.215.138.0/24`) by
+default, and getting one working hits a dead end on the VM's reply
+path (ADR-029). Don't fight that — tunnel through cp-1 instead, which
+is already a full peer of the bridge:
+
+```bash
+ssh -L 8443:$(kubectl get gateway/rancher -n cattle-system -o jsonpath='{.status.addresses[0].value}'):443 cp-1 -N
+```
+
+(or just run `scripts/rancher-tunnel.sh`, which does the same thing
+plus fetches a fresh kubeconfig first). Leave it running, then open
+`https://localhost:8443/` in the Windows browser. Accept the
+certificate warnings (self-signed + hostname mismatch — both
+expected). Log in with the `bootstrapPassword` set at install time.
+
+### Verify Phase G
+
+- `kubectl get pods -n cattle-system` — `rancher-*` and
+  `rancher-webhook-*` pods `1/1 Running`.
+- `https://localhost:8443/healthz` (through the tunnel) → `ok`.
+- Rancher UI shows cluster `local` as `Active` — this cluster
+  auto-registers itself since Rancher runs on top of it directly
+  (chart default `addLocal: true`), no separate import step needed.
