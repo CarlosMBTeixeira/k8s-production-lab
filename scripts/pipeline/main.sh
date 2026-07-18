@@ -10,6 +10,6 @@ source "${SCRIPT_DIR}/04_rancher.sh"
 
 echo ""
 echo "===================================================================="
-echo "| Full pipeline complete: cluster + Gateway API + Rancher."
+echo "| Pipeline complete: cluster + Gateway API + Rancher."
 echo "| Run ./scripts/rancher-tunnel.sh to access Rancher in the browser."
 echo "===================================================================="
