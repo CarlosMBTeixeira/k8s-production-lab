@@ -93,7 +93,8 @@ install_rancher() {
         --namespace "${RANCHER_NAMESPACE}" \
         --set hostname="${RANCHER_HOSTNAME}" \
         --set networkExposure.type=none \
-        --set tls=secret \
+        --set tls=ingress \
+        --set ingress.tls.source=secret \
         --set bootstrapPassword="${BOOTSTRAP_PASSWORD}"
 
     echo "  Waiting for Rancher deployment to become Available (can take a few minutes on first pull)..."
