@@ -9,3 +9,55 @@ containerd 2.2.6. Calico, kube-vip, MetalLB, Envoy Gateway and the
 gateway-api backend all Running.
 Status: July Week 1 baseline confirmed alive and healthy. Starting
 September Week 1 (Rancher) from here.
+=== September Week 1: K8s upgrade to 1.35.6 + Rancher via Gateway API — 20:53 18-07-2026 ===
+Much bigger day than the plan called for. Started by checking real EOL
+dates: the cluster (v1.31.4) had been out of upstream maintenance
+support since Oct 2025, and Rancher's latest stable (2.14.3) only
+certifies importing K8s 1.33-1.35 anyway. Bumped the pinned version in
+Ansible (kubernetes-repo, kubeadm-init, runtime-tools defaults) to
+1.35.6 and rebuilt the cluster from scratch instead of a 4-hop live
+kubeadm upgrade (ADR-025) — 4/4 nodes Ready, Calico/kube-vip/MetalLB/
+Envoy Gateway all healthy post-rebuild, docs/manual-bootstrap.md kept
+in sync with the new version.
+Installed Rancher 2.14.3 via Helm, exposed through a dedicated Gateway
+API resource instead of reusing the smoke-test Gateway (ADR-026, which
+gets regenerated from upstream on every 03_gateway_api_metallb.sh run).
+Hit and fixed two install-time issues: ingress.tls.source defaulting
+to cert-manager-based self-signed certs we don't have installed
+(ADR-027), and Rancher's default 3 replicas restarting repeatedly on
+the startup probe during first boot — tested whether replica count was
+the actual cause (it wasn't; 3 replicas also stabilized fine given
+time) and kept replicas=1 anyway as a RAM-budget choice, not a fix
+(ADR-028).
+Biggest chunk of the day was Windows-to-lab network access, which
+turned into a real multi-layer investigation:
+  1. Windows had no route to the Multipass bridge (10.215.138.0/24) —
+     added one via the WSL2 VM as gateway.
+  2. Multipass's own auto-generated iptables-legacy rules (separate
+     from the ADR-009 rules, invisible to plain  because
+     of the parallel legacy/nft stack on this WSL2 host) only allow
+     ESTABLISHED/RELATED traffic back into the bridge by default —
+     inserted a targeted ACCEPT rule for eth0->mpqemubr0.
+  3. Got the request to the VM, but the VM's reply had no path back to
+     the Windows-side source address (two hops + a NAT boundary away).
+     Diagnosing that further (VM routing table, rp_filter) wasn't
+     worth it for a personal lab — pivoted to an SSH local
+     port-forward through cp-1 instead (scripts/rancher-tunnel.sh),
+     which never leaves the WSL2 side of the network.
+  4. The tunnel then hit Envoy Gateway's SNI matching on the Gateway's
+     fixed hostname (rancher.lab) — localhost/127.0.0.1 sent the wrong
+     SNI and got dropped immediately. Confirmed with
+     curl --resolve rancher.lab:8443:127.0.0.1 (worked) vs bare
+     127.0.0.1 (didn't). Fix: dropped the hostname field entirely from
+     Gateway/rancher and HTTPRoute/rancher — only one backend on this
+     Gateway anyway, hostname routing added friction with no benefit.
+All of this is now ADR-029, and documented step-by-step as Phase G in
+manual-bootstrap.md. scripts/pipeline/main.sh now also sources
+04_rancher.sh, so a full rebuild includes Rancher automatically.
+Status: Rancher UI reachable at https://localhost:8443/ via
+scripts/rancher-tunnel.sh, local cluster auto-registered (addLocal
+default) — satisfies the plan's "import" step for free. Fase 3
+essentially closed, well beyond the original Week 1 scope.
+Next: Day 5 — explore the Rancher UI (RBAC, deploy via UI vs kubectl),
+then Week 2 — ArgoCD, which will need this exact same Gateway +
+tunnel pattern again for its own UI.
