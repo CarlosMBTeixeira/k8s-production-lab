@@ -1764,3 +1764,41 @@ Gateway API setup.
 - Rancher docs: TLS Settings (ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/installation-references/tls-settings)
 
 ---
+## ADR-028: Rancher replicas set to 1 as a resource-conservation choice
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:**
+The Rancher chart defaults to `replicas: 3`, aimed at production HA
+(tolerating the loss of one replica). This lab's worker nodes have
+4GB RAM each, already running Calico, kube-vip, MetalLB, Envoy Gateway
+and CoreDNS. The first install showed repeated pod restarts
+("Startup probe failed... connection refused" on `/healthz`) during
+the first ~10 minutes, which initially looked like multi-replica
+contention (a known Rancher behavior where restarting one replica
+disturbs the others via its `peerManager` resync).
+
+That specific causal theory was tested and disproven: letting the
+original 3-replica install run to completion (~11 minutes, no config
+change) also stabilized cleanly, with all 3 pods reaching `1/1 Running`
+on their own and restarts stopping. The real cause looks like
+Rancher's normal first-boot bootstrap window (CRDs, helm-operation
+sub-chart installs, leader election) simply taking longer than the
+startup probe's window on this hardware, independent of replica count.
+
+**Decision:**
+Set `--set replicas=1` anyway, but purely as a resource-conservation
+choice for this lab (worker RAM budget — September still needs ArgoCD
+and the observability stack on the same 4GB workers), not as a fix for
+the restart loop, which is expected behavior on constrained hardware
+and resolves on its own given time regardless of replica count.
+Rancher's own HA story is a production concern this lab isn't trying
+to demonstrate; the lab's HA story is the *Kubernetes* control plane
+(kube-vip + 2 control planes), not Rancher server itself.
+
+**References:**
+- Rancher Helm Chart Options — `replicas` (ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/installation-references/helm-chart-options)
+- rancher/rancher GitHub issue #44649, "Rancher pods are restarted too often" — peerManager resync behavior under multi-replica restarts
+
+---
