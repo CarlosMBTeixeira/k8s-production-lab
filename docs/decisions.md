@@ -1599,3 +1599,71 @@ effect.
 - ADR-020: Prefer inventory-resolved values over gather_facts (same
   family: don't trust state you didn't just verify, in bootstrap code)
 
+## ADR-025: Rebuild the cluster from scratch at Kubernetes 1.35 instead of upgrading in place
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:**
+The cluster was pinned to Kubernetes v1.31.4 (ADR-015). Checking real
+support windows: 1.31 exited active support on 2025-08-28 and
+maintenance support on 2025-10-28. September's roadmap requires
+importing this cluster into Rancher; Rancher's latest stable (2.14.3,
+released 2026-06-29) only certifies importing Kubernetes 1.33-1.35.
+Kubernetes' own N-2 policy currently keeps 1.34, 1.35 and 1.36 under
+active support. 1.35 is the newest version inside both windows
+simultaneously (Rancher import range AND upstream active support,
+until 2026-12-28).
+
+**Decision:**
+Skip an in-place `kubeadm upgrade` through all four intermediate minor
+versions. `scripts/lab-management.sh` already destroys and rebuilds all
+4 VMs at the start of most sessions, and `kubeadm upgrade` is a skill
+already exercised for the CKA exam (passed in July) — doing 16 manual
+node-upgrade operations here would be pure repetition with no lasting
+effect on the automation. Instead: bump the pinned version in
+`ansible/roles/kubernetes-repo/defaults/main.yml`
+(`kubernetes_minor_version`, `kubernetes_package_version`),
+`ansible/roles/kubeadm-init/defaults/main.yml`
+(`kubeadm_init_kubernetes_version`), and
+`ansible/roles/runtime-tools/defaults/main.yml`
+(`runtime_tools_crictl_version` + checksum, kept aligned with the K8s
+minor per existing convention) to 1.35, then destroy the current 1.31.4
+cluster and run the full pipeline so all 4 nodes bootstrap fresh at
+1.35 in one pass. `docs/manual-bootstrap.md` is updated in the same
+commit so the manual walkthrough never drifts from the automation
+(per the project's manual-deploy goal).
+
+The exact Debian package revision (the `-1.1` suffix pkgs.k8s.io
+appends) was not guessed: it was discovered live via `apt-cache
+madison kubeadm` against the real v1.35 repo (`1.35.6-1.1`), same
+reproducibility principle as ADR-015.
+
+**Rejected alternatives:**
+- **Manually upgrade the live cluster through all 4 hops
+  (1.31→1.32→1.33→1.34→1.35), as originally decided in an earlier
+  draft of this ADR.** Real production clusters can't be
+  destroyed and rebuilt on a whim, so this is a legitimate skill — but
+  it's already covered by the CKA exam just passed, and this lab's own
+  operating model (destroy/rebuild per session) makes a live upgrade
+  pure practice with no lasting effect on the automation.
+- **Pin an older Rancher line (2.12.11 / 2.13.7) to avoid touching K8s
+  at all.** Rejected in the prior ADR draft and still rejected here:
+  leaves the cluster on an upstream-EOL Kubernetes minor.
+
+**Trade-offs accepted:**
+- Loses the specific hands-on repetition of `kubeadm upgrade node`
+  across control planes and workers in this session — acceptable since
+  the skill was already exercised for the CKA exam itself.
+- If a real in-place upgrade drill is ever needed again (e.g. before a
+  recertification), it should be done as its own dedicated exercise,
+  not folded into infrastructure work like this.
+
+**References:**
+- Kubernetes Releases — Patch Releases (kubernetes.io/releases/patch-releases/)
+- endoflife.date/kubernetes — support windows for 1.31-1.36 (accessed 2026-07-18)
+- SUSE Rancher Manager 2.14.3 Support Matrix (suse.com/suse-rancher/support-matrix/all-supported-versions/rancher-v2-14-3/)
+- Rancher Kubernetes Version Compatibility — compatibility.fyi/projects/rancher/kubernetes/ (verified 2026-07-10)
+- cri-tools v1.35.0 release, linux-amd64 checksum (github.com/kubernetes-sigs/cri-tools/releases/tag/v1.35.0)
+
+---
