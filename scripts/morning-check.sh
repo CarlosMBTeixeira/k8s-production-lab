@@ -52,7 +52,11 @@ echo "|-------------------------------------------------------------------------
 echo "WSL2 host:"
 check "systemd is PID 1"                "[ \"\$(ps -p 1 -o comm=)\" = 'systemd' ]"
 check "Multipass daemon responding"     "multipass version"
-check "FORWARD rules on mpqemubr0"      "sudo iptables -L FORWARD -n -v | grep -q mpqemubr0"
+# Direct L3 access from Windows to the Multipass bridge was abandoned in
+# favor of an SSH tunnel (ADR-029) — this rule belongs to that abandoned
+# path and is non-persistent across reboots by design. Informational only.
+info "FORWARD rules on mpqemubr0"       "sudo iptables -L FORWARD -n -v | grep -q mpqemubr0"
+check "Docker allows Multipass bridge (DOCKER-USER)" "sudo iptables -C DOCKER-USER -s 10.215.138.0/24 -j ACCEPT >/dev/null 2>&1 && sudo iptables -C DOCKER-USER -d 10.215.138.0/24 -j ACCEPT >/dev/null 2>&1"
 echo ""
 
 echo "VMs:"

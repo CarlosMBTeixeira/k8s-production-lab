@@ -32,6 +32,7 @@ SCRIPT_DIR="$(dirname "$0")"
 LAUNCH_SCRIPT="${SCRIPT_DIR}/launch-node.sh"
 SYNC_SCRIPT="${SCRIPT_DIR}/sync-ssh-config.sh"
 CHECK_SCRIPT="${SCRIPT_DIR}/morning-check.sh"
+FIX_NETWORK_SCRIPT="${SCRIPT_DIR}/fix-docker-forward.sh"
 
 # ----------------------------------------------------------------------------
 # Argument parsing
@@ -160,6 +161,7 @@ do_build() {
     echo "|---------------------------------------------------------------------------"
     echo "| Synchronizing ~/.ssh/config"
     echo "|---------------------------------------------------------------------------"
+    "$FIX_NETWORK_SCRIPT"
     "$SYNC_SCRIPT"
 
     # Brief pause for cloud-init to finalize before health check.
@@ -264,6 +266,7 @@ do_rebuild() {
     echo "|---------------------------------------------------------------------------"
     echo "| Synchronizing ~/.ssh/config"
     echo "|---------------------------------------------------------------------------"
+    "$FIX_NETWORK_SCRIPT"
     "$SYNC_SCRIPT"
 
     echo ""
