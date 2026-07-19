@@ -8,7 +8,16 @@
 # terminates at the Gateway, backend serves plain HTTP — same principle as
 # Rancher's ingress.tls.source=secret (ADR-027).
 #
-# Idempotent: safe to re-run after a cluster rebuild.
+# Admin password is set at install time via a bcrypt hash, generated
+# on the fly and passed through a temp values file (never written to git,
+# never passed as a --set with an escaped $ — same reproducibility
+# principle as ADR-006). Setting this reliably requires a FRESH install:
+# the chart can ignore password changes on an in-place `helm upgrade`
+# over an existing release (argo-helm issue #1407) — this script's
+# idempotency assumes the usual destroy/rebuild workflow, not a live
+# password change on a running release.
+#
+# Idempotent (on a fresh cluster): safe to re-run after a cluster rebuild.
 # ============================================================================
 
 set -euo pipefail
@@ -29,25 +38,48 @@ section() {
 }
 
 fetch_kubeconfig() {
-    section "Step 0/5: Fetching fresh kubeconfig from cp-1"
+    section "Step 0/6: Fetching fresh kubeconfig from cp-1"
     scp -o StrictHostKeyChecking=no cp-1:~/.kube/config "${KUBECONFIG_LOCAL}"
     export KUBECONFIG="${KUBECONFIG_LOCAL}"
     kubectl get nodes
 }
 
+prepare_admin_password() {
+    section "Step 1/6: Setting a custom admin password"
+    if ! command -v htpasswd >/dev/null 2>&1; then
+        echo "  htpasswd not found, installing apache2-utils..."
+        sudo apt-get update -qq && sudo apt-get install -y apache2-utils
+    fi
+
+    read -r -s -p "  Choose an ArgoCD admin password (min 8 chars, not stored anywhere): " ARGOCD_PASSWORD
+    echo
+    local hash
+    hash="$(htpasswd -nbBC 10 "" "${ARGOCD_PASSWORD}" | tr -d ':\n' | sed 's/\$2y/\$2a/')"
+
+    PASSWORD_VALUES_FILE="$(mktemp)"
+    cat > "${PASSWORD_VALUES_FILE}" << YAMLEOF
+configs:
+  secret:
+    argocdServerAdminPassword: "${hash}"
+    argocdServerAdminPasswordMtime: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+YAMLEOF
+}
+
 install_argocd() {
-    section "Step 1/5: Installing ArgoCD ${ARGOCD_CHART_VERSION} (argo-helm, Artifact Hub)"
+    section "Step 2/6: Installing ArgoCD ${ARGOCD_CHART_VERSION} (argo-helm, Artifact Hub)"
     helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
     helm repo update
     helm upgrade --install argocd argo/argo-cd \
         --version "${ARGOCD_CHART_VERSION}" \
         --namespace "${ARGOCD_NAMESPACE}" --create-namespace \
-        -f "${ARGOCD_DIR}/values.yaml"
+        -f "${ARGOCD_DIR}/values.yaml" \
+        -f "${PASSWORD_VALUES_FILE}"
+    rm -f "${PASSWORD_VALUES_FILE}"
     kubectl wait --for=condition=Available --timeout=300s -n "${ARGOCD_NAMESPACE}" deployment/argocd-server
 }
 
 generate_tls_secret() {
-    section "Step 2/5: Generating self-signed TLS cert"
+    section "Step 3/6: Generating self-signed TLS cert"
     local tmpdir
     tmpdir="$(mktemp -d)"
     openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
@@ -60,7 +92,7 @@ generate_tls_secret() {
 }
 
 apply_gateway_and_route() {
-    section "Step 3/5: Applying Gateway + HTTPRoute"
+    section "Step 4/6: Applying Gateway + HTTPRoute"
     kubectl apply -f "${ARGOCD_DIR}/gateway-argocd.yaml"
     kubectl apply -f "${ARGOCD_DIR}/httproute-argocd.yaml"
 
@@ -76,25 +108,23 @@ apply_gateway_and_route() {
     echo "  Gateway address: ${ADDR}"
 }
 
-print_credentials() {
-    section "Step 4/5: Initial admin credentials"
-    local password
-    password=$(kubectl -n "${ARGOCD_NAMESPACE}" get secret argocd-initial-admin-secret \
-        -o jsonpath='{.data.password}' | base64 -d)
-    echo "  Username: admin"
-    echo "  Password: ${password}"
-    echo "  (Delete this secret after first login, per ArgoCD's own docs.)"
-}
-
 verify() {
-    section "Step 5/5: Verifying"
+    section "Step 5/6: Verifying"
     kubectl get pods -n "${ARGOCD_NAMESPACE}"
     kubectl get gateway,httproute -n "${ARGOCD_NAMESPACE}"
 }
 
+print_reminder() {
+    section "Step 6/6: Access"
+    echo "  Username: admin"
+    echo "  Password: the one you just typed in"
+    echo "  Run ./scripts/argocd-tunnel.sh, then https://localhost:8444/"
+}
+
 fetch_kubeconfig
+prepare_admin_password
 install_argocd
 generate_tls_secret
 apply_gateway_and_route
-print_credentials
 verify
+print_reminder
