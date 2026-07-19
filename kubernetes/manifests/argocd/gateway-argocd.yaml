@@ -1,0 +1,16 @@
+# Dedicated Gateway for ArgoCD — same pattern as Rancher (ADR-026/029/030).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: argocd-tls

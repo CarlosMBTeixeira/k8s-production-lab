@@ -1871,3 +1871,40 @@ which no longer serves any purpose now that Gateway/rancher and
 HTTPRoute/rancher accept any SNI/hostname and access goes through
 `scripts/rancher-tunnel.sh` + plain `localhost` instead.
 ---
+## ADR-030: Standardize application installs on Helm charts from Artifact Hub
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:**
+Installs so far in this lab have been inconsistent: Calico and MetalLB
+via raw upstream manifests, Envoy Gateway and Rancher via Helm (both
+charts happen to also be listed on Artifact Hub). This mirrors the
+author's day job, where every application deployment goes through Helm
+charts sourced from Artifact Hub — using the same discovery/install
+pattern here reinforces that muscle memory rather than working against it.
+
+**Decision:**
+From this point forward, every *application* installed in this lab
+(ArgoCD, and later the observability stack) uses a Helm chart found on
+Artifact Hub, added via its own repo (`helm repo add <name> <url>`),
+version-pinned, with values committed to
+`kubernetes/manifests/<app>/values.yaml`. Cluster-level infrastructure
+already installed via raw manifest (Calico, MetalLB) is grandfathered,
+not retrofitted — ADR-016 and the MetalLB install already made
+deliberate choices there, and revisiting them isn't worth the churn.
+
+First application under this policy: ArgoCD via
+`argo/argo-cd` (Artifact Hub: artifacthub.io/packages/helm/argo/argo-cd),
+chart `10.1.4`, repo `https://argoproj.github.io/argo-helm`. Installed
+with `configs.params."server.insecure"=true` (via values file, not a
+`--set` with an escaped dot — avoids the same class of fragile
+string-templating ADR-006 already steered away from) so TLS terminates
+at `Gateway/argocd` instead of double-terminating (same principle as
+Rancher's ADR-027).
+
+**References:**
+- Artifact Hub — argo-cd chart (artifacthub.io/packages/helm/argo/argo-cd)
+- argo-helm repository (github.com/argoproj/argo-helm)
+
+---

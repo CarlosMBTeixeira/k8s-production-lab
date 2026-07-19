@@ -1,0 +1,6 @@
+# Helm values for argo/argo-cd (Artifact Hub — see ADR-030).
+# server.insecure: TLS terminates at Gateway/argocd instead; avoids the
+# double-TLS redirect loop argocd-server has by default.
+configs:
+  params:
+    server.insecure: "true"
