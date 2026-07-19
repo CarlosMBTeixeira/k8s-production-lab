@@ -2017,3 +2017,27 @@ committed.
   (artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack)
 - prometheus-community/helm-charts repository
   (github.com/prometheus-community/helm-charts)
+
+**Resolution (2026-07-19):** kube-prometheus-stack's real footprint
+measured after install: ~900MB-1GB total across the cluster, well
+within the tuned budget above. Available memory settled at ~1.4-1.5GB
+per control plane and ~2.5-2.6GB per worker. Decided to leave Rancher
+and ArgoCD uninstalled for now rather than reinstalling both on top —
+the control planes' remaining margin is too thin to absorb either
+reliably. `scripts/pipeline/04_rancher.sh` and `05_argocd.sh` are
+unchanged and ready to reinstall whenever a more definitive
+RAM/host-sizing strategy is worked out (fewer concurrent apps, smaller
+per-VM allocations, or a larger WSL2 memory budget if the host allows
+it).
+
+**Known issue surfaced during this install (2026-07-19):** VM guest
+clocks can silently drift under host CPU pressure (KVM vCPU scheduling
+pauses), even while `timedatectl` reports "System clock synchronized:
+yes" — the daemon believes it's correct based on its last check, not
+in real time. This broke the Grafana Gateway's self-signed TLS cert
+validation (`cp-2`/`w-1`/`w-2` were ~20 minutes behind `cp-1` and real
+time; Envoy Gateway runs on a worker, so it saw the cert as
+"not yet valid"). Fixed ad hoc with `systemctl restart
+systemd-timesyncd` on the affected nodes. Not yet automated — tracked
+as a follow-up to add a clock-sync check/fix across all 4 VMs to
+`morning-check.sh`.
