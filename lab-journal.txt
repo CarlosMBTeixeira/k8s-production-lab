@@ -171,3 +171,63 @@ Next: September's remaining scope is now just the observability stack
 (Prometheus/Grafana/Loki via Helm from Artifact Hub, per ADR-030),
 since Rancher and ArgoCD moved up into July. Could start that early
 given the pace so far, or treat August as the planned break.
+
+=== Observability stack: kube-prometheus-stack via Helm, RAM reality check, main.sh redesign — 19:15 19-07-2026 ===
+Chose kube-prometheus-stack (prometheus-community, chart 87.17.0) for
+Prometheus + Grafana + Alertmanager — same package used at the day
+job, matches ADR-030's Artifact Hub policy (ADR-031).
+
+Before installing, checked actual RAM headroom: WSL2 host itself was
+already tight (19GB total, ~17GB claimed by the 4 fixed-size VM
+allocations, swap in use) — a separate, harder constraint than
+in-cluster memory, since VM memory is reserved by KVM regardless of
+what's running inside. In-cluster, scaling Rancher's deployment to 0
+only freed ~400MB (most of its footprint turned out to be Fleet and
+Rancher Turtles, sub-components it manages as independent Helm
+releases, untouched by scaling the main deployment). Fully uninstalled
+Rancher and ArgoCD instead — ArgoCD came out clean, Rancher left
+several cattle-*/fleet-*/local namespaces stuck Terminating on
+finalizers referencing controllers that no longer existed
+(controller.cattle.io/*, wrangler.cattle.io/*, fleet.cattle.io/*),
+cleared by patching each stuck resource's finalizers to empty.
+
+Installed with resources tuned well below chart defaults (Prometheus
+512Mi/1Gi, Alertmanager 64Mi/128Mi, Grafana 128Mi/256Mi, 24h retention,
+ephemeral storage since there's no StorageClass in this lab) and the
+kubeadm-only-127.0.0.1 control-plane ServiceMonitors (kubeControllerManager/
+kubeScheduler/kubeEtcd/kubeProxy) disabled to avoid guaranteed scrape
+failures.
+
+Hit a real bug mid-install: the Grafana Gateway's self-signed TLS cert
+kept failing "not yet valid" even well past its notBefore time.
+Root cause: cp-2/w-1/w-2 (Envoy Gateway runs on worker-2) had their
+clocks stuck ~20 minutes in the past under host CPU pressure, despite
+`timedatectl` reporting "System clock synchronized: yes" — the daemon
+trusted its last successful check rather than continuously verifying.
+Fixed with `systemctl restart systemd-timesyncd` on the affected
+nodes, then had to delete+recreate the Gateway object itself to force
+Envoy Gateway to re-read the (already-correct) secret. Not yet
+automated — added as a follow-up to extend morning-check.sh with a
+per-VM clock check.
+
+Real footprint after install: ~900MB-1GB total, leaving ~1.4-1.5GB
+free on control planes and ~2.5-2.6GB on workers. Decided against
+reinstalling Rancher/ArgoCD on top of that — too thin a margin on the
+control planes specifically. Instead redesigned scripts/pipeline/
+main.sh: after the cluster + Gateway API install, it now prompts
+interactively for exactly one application (Rancher, ArgoCD, or
+Observability) rather than chaining all three. This is the durable
+working mode until the host gets more RAM later this year, not a
+one-off workaround — documented as a follow-up on ADR-031.
+
+Status: kube-prometheus-stack healthy (9/9 pods Running), Grafana
+reachable via tunnel/direct IP, ADR-031 closed with both the resource
+plan and the clock-drift issue documented. README updated (stack,
+roadmap, GitOps repo link, known issues). Rancher and ArgoCD scripts
+untouched and ready to reinstall any time via the new main.sh prompt.
+
+Next: clock-sync check/fix for all 4 VMs in morning-check.sh (open
+follow-up). Otherwise July's scope is now fully closed — Rancher,
+ArgoCD, and observability all demonstrated end-to-end, well ahead of
+the original plan. August is the planned break; September shifts to
+Loki + revisiting concurrent app hosting once more RAM is available.
