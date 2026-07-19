@@ -1,0 +1,41 @@
+# kube-prometheus-stack values, sized for a 4-node lab (4GB RAM/VM).
+# See ADR-031 for the reasoning behind every non-default value here.
+
+prometheus:
+  prometheusSpec:
+    retention: 24h
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+grafana:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+# kubeadm binds these control-plane components to 127.0.0.1 by default,
+# so the chart's default ServiceMonitors for them fail to scrape.
+# Disabled for now — see ADR-031.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
