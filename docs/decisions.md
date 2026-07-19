@@ -1870,9 +1870,36 @@ removed — it synced `rancher.lab` to the Gateway IP in `/etc/hosts`,
 which no longer serves any purpose now that Gateway/rancher and
 HTTPRoute/rancher accept any SNI/hostname and access goes through
 `scripts/tunnels/rancher-tunnel.sh` + plain `localhost` instead.
+
+**Resolution (2026-07-19):** The rejected alternative above was
+retested after unrelated troubleshooting surfaced two compounding
+bugs that made direct L3 access look worse than it actually was.
+First, Docker's own nftables-backed FORWARD chain (DOCKER-USER /
+DOCKER-FORWARD) defaults to policy DROP and is re-applied on every
+Docker daemon restart, intercepting `mpqemubr0` traffic independently
+of Multipass's own `iptables-legacy` rules — Multipass's rules were
+correct all along, but a second, unrelated firewall stack was
+silently dropping the same packets (DOCKER-USER is Docker's own
+documented insertion point for user rules:
+docs.docker.com/engine/network/packet-filtering-firewalls/#docker-user).
+Second, `multipass list` returned stale cached IPs after a VM
+rebuild, so an early retest targeted a dead address and produced
+misleading ICMP redirects from an unrelated host. With the Windows
+route (`scripts/windows/setup-route.ps1`), the DOCKER-USER fix
+(`scripts/fix-docker-forward.sh`, wired into `lab-management.sh`),
+and the correct current IP, direct HTTPS access to Rancher and ArgoCD
+from Windows now works cleanly (`curl -k https://<gateway-ip>/healthz`
+returns 200). The original `rp_filter`/asymmetric-routing theory
+guessed at above was never the actual cause.
+
+The SSH tunnel remains the documented default and fallback: the
+Windows route and the DOCKER-USER rule are both non-persistent (reset
+on every Windows/Docker restart), so the tunnel is the option that
+always works without extra setup. Direct IP access is now a
+documented, working alternative once the two fix scripts have been
+(re)run for the session.
 ---
 ## ADR-030: Standardize application installs on Helm charts from Artifact Hub
-
 **Date:** 2026-07-18
 **Status:** Accepted
 
