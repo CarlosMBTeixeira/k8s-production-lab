@@ -2065,3 +2065,10 @@ time; Envoy Gateway runs on a worker, so it saw the cert as
 systemd-timesyncd` on the affected nodes. Not yet automated — tracked
 as a follow-up to add a clock-sync check/fix across all 4 VMs to
 `morning-check.sh`.
+
+**Follow-up (2026-07-19):** `scripts/pipeline/main.sh` now prompts
+interactively for exactly one application (Rancher, ArgoCD, or
+Observability) after the cluster + Gateway API install, instead of
+chaining all three. This is the durable answer to the RAM constraint
+above — install-one-at-a-time is the working mode until the host gets
+more memory (planned for later this year), not a one-off workaround.
