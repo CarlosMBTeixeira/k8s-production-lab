@@ -6,10 +6,14 @@ for the CKA certification and as a demonstrable portfolio project for DevOps wor
 ## Stack
 - **Host:** HP OMEN 16-ap0xxx (Ryzen 9 8940HX, 24 GB RAM, Windows 11 Home)
 - **Virtualization:** WSL2 (Ubuntu 24.04) with nested KVM → Multipass VMs
-- **Cluster:** 4 nodes (2 control plane + 2 workers), kubeadm-based HA
-- **Tooling:** Ansible (provisioning), ArgoCD (GitOps), Rancher (management),
-  Prometheus + Grafana + Loki (observability), Cert-Manager + Network Policies
-  + External Secrets + Pod Security (security layer)
+- **Cluster:** 4 nodes (2 control plane + 2 workers), kubeadm-based HA, Kubernetes 1.35
+- **Networking:** Calico (CNI), Gateway API via Envoy Gateway + MetalLB (LoadBalancer/ingress,
+  replacing ingress-nginx after its 2026-03-31 EOL)
+- **Applications:** installed via Helm charts sourced from Artifact Hub (ADR-030) —
+  ArgoCD (GitOps) and Rancher (cluster management) so far
+- **Tooling:** Ansible (provisioning), Helm, ArgoCD, Rancher
+- **Planned:** Prometheus + Grafana + Loki (observability), Cert-Manager + Network
+  Policies + External Secrets + Pod Security (security layer)
 
 ## Architecture
 
@@ -23,14 +27,56 @@ Windows 11 Home
         └── w2    (4 GB, 2 vCPU) — worker
 ```
 
+## Running the lab
+
+The lab is destroyed and rebuilt from scratch every session — nothing is
+left running between uses.
+
+```bash
+# 1. Build/rebuild the 4 VMs, fix WSL2/Docker networking, sync SSH config,
+#    run a health check. Safe to run repeatedly.
+./scripts/lab-management.sh rebuild --force
+
+# 2. Provision Kubernetes + Gateway API/MetalLB + Rancher + ArgoCD.
+bash scripts/pipeline/main.sh
+```
+
+### Accessing Rancher / ArgoCD from Windows
+
+Two options, both documented in ADR-029:
+
+- **SSH tunnel (always works, no setup):**
+  `./scripts/tunnels/rancher-tunnel.sh` / `./scripts/tunnels/argocd-tunnel.sh`,
+  then browse to `https://localhost:<port>/`.
+- **Direct IP access (faster, needs one setup step per Windows session):**
+  run `scripts/windows/setup-route.ps1` once from an elevated PowerShell
+  after each Windows/PC restart (it self-elevates and figures out the
+  current WSL2 IP automatically), then browse straight to the Gateway's
+  IP (`kubectl get gateway -A` to find it).
+
+Both the Windows route and the WSL2-side firewall rules that direct
+access depends on are non-persistent — `setup-route.ps1` and
+`scripts/fix-network-access.sh` (run automatically by
+`lab-management.sh`) need to (re)run every session, which is why the
+tunnel remains the default fallback.
+
+### Health check
+
+```bash
+bash scripts/morning-check.sh
+```
+
+Run automatically at the end of `lab-management.sh build`/`rebuild`, or
+standalone any time to check current state.
+
 ## Roadmap (8 months)
 
 | Month | Focus |
 |---|---|
 | June 2026 | Provisioning automation (Multipass + Ansible) |
-| July 2026 | kubeadm HA cluster + **CKA exam** |
+| July 2026 | kubeadm HA cluster + **CKA exam** + Rancher + ArgoCD (moved up from September) |
 | August 2026 | Vacation |
-| September 2026 | Rancher + ArgoCD + Observability stack |
+| September 2026 | Observability stack (Prometheus, Grafana, Loki) |
 | October 2026 | Security layer + portfolio close |
 | November 2026 | Terraform AI agent (separate project) |
 
@@ -43,3 +89,8 @@ Windows 11 Home
 - [x] July Week 1: kubeadm HA control plane bootstrapped and validated (kube-vip VIP, 2 control planes + 2 workers, Calico CNI)
 - [x] July Week 1 (extra): Gateway API + MetalLB smoke test, replacing nginx+NodePort (ingress-nginx EOL 2026-03-31)
 - [x] July Weeks 2-4: CKA exam preparation completed, exam passed
+- [x] July Week 5: cluster rebuilt from scratch on Kubernetes 1.35 (ADR-025)
+- [x] July Week 5: Rancher installed via Helm (rancher-stable), exposed through a dedicated Gateway API resource (ADR-026–028)
+- [x] July Week 5: Windows access to lab UIs — SSH tunnel (default) and direct IP access (ADR-029)
+- [x] July Week 5: Helm charts from Artifact Hub established as the standard for all application installs (ADR-030); ArgoCD is the first application under this policy
+- [x] July Week 5: WSL2/Multipass networking fully automated — Docker DOCKER-USER chain, Multipass inbound-connection rule, and the Windows-side route are all scripted and idempotent (ADR-029 resolved)
