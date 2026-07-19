@@ -1945,3 +1945,75 @@ No change needed. Envoy Gateway (also Helm, OCI) is cluster
 infrastructure, not an application, and stays out of scope for this
 policy regardless of its own Artifact Hub status.
 ---
+
+## ADR-031: Observability stack via kube-prometheus-stack, sized for the lab's RAM budget
+
+**Date:** 2026-07-19
+**Status:** Accepted
+
+**Context:**
+September's plan called for Prometheus + Grafana + Loki via Helm. Per
+ADR-030, the canonical source is Artifact Hub. `kube-prometheus-stack`
+(prometheus-community/helm-charts, chart `87.17.0`) is the de facto
+standard package for this — bundles Prometheus Operator, Prometheus,
+Alertmanager, Grafana, kube-state-metrics, node-exporter, and default
+dashboards/rules — and matches the tool used in the author's day job.
+
+The lab's RAM budget is tight: 4 VMs x 4GB fixed KVM allocation from a
+~19GB WSL2 budget already leaves the host itself under memory pressure
+(swap in use) independent of what's running inside the cluster.
+In-cluster, available memory per node ranged ~1.4-2.7GB before this
+change. Rancher and ArgoCD were fully uninstalled (not just scaled
+down — scaling Rancher's main deployment to 0 only freed ~400MB, most
+of its footprint was in Fleet and Rancher Turtles, which it manages as
+independent Helm releases untouched by scaling the main deployment) to
+give kube-prometheus-stack clean room to install and be measured, with
+the intent to reassess whether all three can coexist afterward.
+
+No StorageClass exists in this lab, so Prometheus/Alertmanager/Grafana
+all run on ephemeral storage (the default when no storage/persistence
+is configured) — acceptable for a personal lab with short retention.
+
+**Decision:**
+Install kube-prometheus-stack (chart `87.17.0`, repo
+`https://prometheus-community.github.io/helm-charts`) via a new
+`scripts/pipeline/06_observability.sh`, following the same Gateway API
++ tunnel-script access pattern as Rancher/ArgoCD (ADR-026, ADR-029).
+Resources tuned down from chart defaults: Prometheus 512Mi/1Gi request/
+limit (100m cpu), Alertmanager 64Mi/128Mi (25m cpu), Grafana 128Mi/
+256Mi (50m cpu). Prometheus retention set to 24h. `kubeControllerManager`,
+`kubeScheduler`, `kubeEtcd`, and `kubeProxy` ServiceMonitors disabled —
+kubeadm binds these control-plane components to 127.0.0.1 by default,
+so their default ServiceMonitors would fail to scrape; revisiting this
+would mean patching kubeadm's static pod manifests to bind 0.0.0.0, a
+separate change with its own trade-offs, out of scope here.
+
+Grafana admin password prompted at install time (same pattern as
+Rancher's `bootstrapPassword` and ArgoCD's admin password), never
+committed.
+
+**Rejected alternatives:**
+- **Installing alongside Rancher/ArgoCD without measuring first.**
+  Given the host's already-tight RAM (swap active before this change),
+  guessing at a shared resource budget risked OOM-killing pods across
+  all three apps at once with no clear signal about which one to
+  blame. Measuring kube-prometheus-stack's real footprint in isolation
+  first is slower but gives an actual number to plan around.
+- **Scaling Rancher to 0 instead of full uninstall.** Tried first;
+  only freed ~400MB because Rancher's own footprint was mostly in
+  Fleet/Turtles. Full uninstall was needed for a clean baseline.
+
+**Trade-offs accepted:**
+- No control-plane component metrics (kube-controller-manager,
+  kube-scheduler, etcd) for now.
+- Ephemeral storage — Prometheus/Grafana data is lost on pod restart.
+  Acceptable given the 24h retention and personal-lab scope.
+- Rancher and ArgoCD are down while this is installed and measured;
+  `scripts/pipeline/04_rancher.sh` and `05_argocd.sh` are unchanged and
+  can reinstall both once the real headroom picture is clear.
+
+**References:**
+- Artifact Hub — kube-prometheus-stack chart
+  (artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack)
+- prometheus-community/helm-charts repository
+  (github.com/prometheus-community/helm-charts)
