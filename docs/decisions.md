@@ -1907,4 +1907,12 @@ Rancher's ADR-027).
 - Artifact Hub — argo-cd chart (artifacthub.io/packages/helm/argo/argo-cd)
 - argo-helm repository (github.com/argoproj/argo-helm)
 
+**Retroactive compliance check (2026-07-19):** Rancher (`rancher-stable`)
+was already compliant with this policy before it existed — confirmed
+the chart repo used (releases.rancher.com/server-charts/stable) is the
+exact same one indexed on Artifact Hub
+(artifacthub.io/packages/helm/rancher-stable/rancher), not a lookalike.
+No change needed. Envoy Gateway (also Helm, OCI) is cluster
+infrastructure, not an application, and stays out of scope for this
+policy regardless of its own Artifact Hub status.
 ---
