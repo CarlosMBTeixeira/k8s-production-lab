@@ -61,3 +61,75 @@ essentially closed, well beyond the original Week 1 scope.
 Next: Day 5 — explore the Rancher UI (RBAC, deploy via UI vs kubectl),
 then Week 2 — ArgoCD, which will need this exact same Gateway +
 tunnel pattern again for its own UI.
+
+=== ArgoCD via Helm/Artifact Hub, PC-restart networking saga, ADR-029 resolved — 10:45 19-07-2026 ===
+Installed ArgoCD via the argo-helm chart (10.1.4, Artifact Hub-listed),
+same Gateway+HTTPRoute pattern as Rancher, with a custom bcrypt admin
+password set at install time instead of the auto-generated one
+(ADR-030 established: from now on every *application* install goes
+through a Helm chart sourced from Artifact Hub, matching the day-job
+pattern; cluster infra like Calico/MetalLB stays grandfathered).
+Retroactively confirmed Rancher already complied before the policy
+existed (same rancher-stable repo as the one indexed on Artifact Hub).
+
+Then the PC got restarted mid-session (VMs not destroyed first). What
+followed was a long, genuinely useful debugging chain:
+  1. kube-apiserver was crash-looping on cp-1 — traced to clock drift
+     after the VMs resumed (timedatectl: "System clock synchronized:
+     no"), which broke TLS between etcd/apiserver.
+  2. Tried `multipass restart` on all 4 VMs to force a clean NTP sync.
+     This actually triggered scripts/lab-management.sh's own health
+     check gate, which failed on a stale "FORWARD rules on mpqemubr0"
+     check (testing the wrong iptables backend — Multipass writes to
+     iptables-legacy, that check reads nftables) and left the VMs as
+     freshly-launched, unprovisioned images (no kubeadm/kubectl at
+     all). Fixed the check to be informational instead of blocking.
+  3. Did the normal `lab-management.sh rebuild --force` +
+     `pipeline/main.sh`, which stalled entirely on `apt-get update`
+     across all 4 nodes — real root cause: Docker's own nftables-
+     backed FORWARD chain (DOCKER-USER/DOCKER-FORWARD) defaults to
+     policy DROP and gets reapplied on every Docker daemon restart,
+     silently killing all outbound internet from the Multipass bridge,
+     independent of Multipass's own (correct) iptables-legacy rules.
+     Fixed with an ACCEPT rule in DOCKER-USER (Docker's own documented
+     insertion point for user rules), scripted as
+     scripts/fix-network-access.sh and wired into lab-management.sh
+     to run automatically, before VM launch (not after — cloud-init
+     should always have internet from boot 1).
+  4. With the cluster healthy again, revisited the Windows-direct-
+     access problem that ADR-029 had abandoned back on 2026-07-18.
+     Root cause turned out to be three stacked issues, none of them
+     the asymmetric-routing/rp_filter theory originally suspected:
+     the non-persistent Windows route (now scripts/windows/
+     setup-route.ps1, idempotent + self-elevating), the same
+     DOCKER-USER FORWARD-DROP bug from step 3, and — the one that
+     really threw us off — `multipass list` reporting stale cached
+     IPs after a rebuild, so early retests kept pinging a dead
+     address. Ground truth came from `multipass exec <vm> --
+     ip addr show ens3`. With all three fixed, direct HTTPS access
+     from Windows to both Rancher and ArgoCD Gateway IPs now returns
+     a clean 200 on /healthz. Decision: SSH tunnel stays the default,
+     no-setup-required fallback (the fixes are non-persistent, reset
+     every Windows/Docker restart); direct IP access is now a
+     documented, working alternative once setup-route.ps1 and
+     fix-network-access.sh have run for the session. Written up as
+     the Resolution addendum on ADR-029.
+
+Also: moved rancher-tunnel.sh/argocd-tunnel.sh into scripts/tunnels/
+(fixed a REPO_ROOT path-depth bug this exposed), consolidated the
+gateway_api namespace manifest into kubernetes/manifests/
+gateway_api_metallb/, and rewrote README.md — status section, roadmap
+(Rancher+ArgoCD moved up from September to July), and a new "Running
+the lab" section documenting the two-command rebuild flow and both
+access methods.
+
+Status: cluster, Rancher and ArgoCD all healthy after a full
+destroy+rebuild, morning-check.sh fully green, everything committed
+and pushed. ADR-029 and ADR-030 both closed out properly.
+
+Next: Semana 2 (ArgoCD) continuation — still need to decide where the
+GitOps manifests repo lives (folder in this repo vs. separate repo,
+question open), then first Application + manual sync (Day 4),
+auto-sync/self-heal/drift test (Day 5), rollback test (Day 6). After
+that, September shifts to just the observability stack, since Rancher
+and ArgoCD are already done.
