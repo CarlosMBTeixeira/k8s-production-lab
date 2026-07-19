@@ -894,7 +894,7 @@ See ADR-022.
 
 ## Phase G — Install Rancher and access it from Windows
 
-Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/rancher-tunnel.sh`.
+Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`.
 See ADR-026 (dedicated Gateway), ADR-027 (cert-manager dependency),
 ADR-028 (replica count), ADR-029 (SSH tunnel access, no SNI).
 
@@ -962,7 +962,7 @@ is already a full peer of the bridge:
 ssh -L 8443:$(kubectl get gateway/rancher -n cattle-system -o jsonpath='{.status.addresses[0].value}'):443 cp-1 -N
 ```
 
-(or just run `scripts/rancher-tunnel.sh`, which does the same thing
+(or just run `scripts/tunnels/rancher-tunnel.sh`, which does the same thing
 plus fetches a fresh kubeconfig first). Leave it running, then open
 `https://localhost:8443/` in the Windows browser. Accept the
 certificate warnings (self-signed + hostname mismatch — both
@@ -979,7 +979,7 @@ expected). Log in with the `bootstrapPassword` set at install time.
 
 ## Phase G — Install Rancher and access it from Windows
 
-Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/rancher-tunnel.sh`
+Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`
 (both also sourced by `scripts/pipeline/main.sh` as of this phase, so a
 full `main.sh` rebuild includes Rancher automatically). See ADR-026
 (dedicated Gateway), ADR-027 (cert-manager dependency), ADR-028
@@ -1049,7 +1049,7 @@ is already a full peer of the bridge:
 ssh -L 8443:$(kubectl get gateway/rancher -n cattle-system -o jsonpath='{.status.addresses[0].value}'):443 cp-1 -N
 ```
 
-(or just run `scripts/rancher-tunnel.sh`, which does the same thing
+(or just run `scripts/tunnels/rancher-tunnel.sh`, which does the same thing
 plus fetches a fresh kubeconfig first). Leave it running, then open
 `https://localhost:8443/` in the Windows browser. Accept the
 certificate warnings (self-signed + hostname mismatch — both

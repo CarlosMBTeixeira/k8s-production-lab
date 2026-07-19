@@ -118,7 +118,7 @@ print_reminder() {
     section "Step 6/6: Access"
     echo "  Username: admin"
     echo "  Password: the one you just typed in"
-    echo "  Run ./scripts/argocd-tunnel.sh, then https://localhost:8444/"
+    echo "  Run ./scripts/tunnels/argocd-tunnel.sh, then https://localhost:8444/"
 }
 
 fetch_kubeconfig

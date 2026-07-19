@@ -12,14 +12,14 @@
 # there's no SNI/Host-header matching to fight — just open
 # https://localhost:<port>/ and accept the self-signed cert warning.
 #
-# Usage: ./scripts/rancher-tunnel.sh
+# Usage: ./scripts/tunnels/rancher-tunnel.sh
 # Leave running; Ctrl+C to close the tunnel.
 # ============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 KUBECONFIG_LOCAL="${REPO_ROOT}/kubernetes/admin.conf"
 LOCAL_PORT=8443
 

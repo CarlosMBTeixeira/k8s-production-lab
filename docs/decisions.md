@@ -1821,7 +1821,7 @@ personal lab.
 
 **Decision:**
 Access lab UIs from Windows via an SSH local port-forward through cp-1
-(`ssh -L <port>:<service-ip>:443 cp-1`, via `scripts/rancher-tunnel.sh`).
+(`ssh -L <port>:<service-ip>:443 cp-1`, via `scripts/tunnels/rancher-tunnel.sh`).
 This avoids cross-subnet routing entirely: the tunnel's WSL2 leg is
 already a full peer of the Multipass bridge, and the Windows leg only
 ever talks to WSL2's own `localhost`, which WSL2 forwards to Windows
@@ -1869,7 +1869,7 @@ during the first (abandoned) attempt at hostname-based access, was
 removed — it synced `rancher.lab` to the Gateway IP in `/etc/hosts`,
 which no longer serves any purpose now that Gateway/rancher and
 HTTPRoute/rancher accept any SNI/hostname and access goes through
-`scripts/rancher-tunnel.sh` + plain `localhost` instead.
+`scripts/tunnels/rancher-tunnel.sh` + plain `localhost` instead.
 ---
 ## ADR-030: Standardize application installs on Helm charts from Artifact Hub
 
