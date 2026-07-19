@@ -2072,3 +2072,8 @@ Observability) after the cluster + Gateway API install, instead of
 chaining all three. This is the durable answer to the RAM constraint
 above — install-one-at-a-time is the working mode until the host gets
 more memory (planned for later this year), not a one-off workaround.
+
+**Resolved (2026-07-19):** Added `scripts/fix-vm-clocks.sh`, wired into
+`lab-management.sh` right after `sync-ssh-config.sh` (same spot as the
+network fixes), and a real per-VM check in `morning-check.sh` (drift
+< 30s against the WSL2 host clock). No longer a manual, ad hoc fix.
