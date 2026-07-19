@@ -2042,30 +2042,6 @@ systemd-timesyncd` on the affected nodes. Not yet automated — tracked
 as a follow-up to add a clock-sync check/fix across all 4 VMs to
 `morning-check.sh`.
 
-**Resolution (2026-07-19):** kube-prometheus-stack's real footprint
-measured after install: ~900MB-1GB total across the cluster, well
-within the tuned budget above. Available memory settled at ~1.4-1.5GB
-per control plane and ~2.5-2.6GB per worker. Decided to leave Rancher
-and ArgoCD uninstalled for now rather than reinstalling both on top —
-the control planes' remaining margin is too thin to absorb either
-reliably. `scripts/pipeline/04_rancher.sh` and `05_argocd.sh` are
-unchanged and ready to reinstall whenever a more definitive
-RAM/host-sizing strategy is worked out (fewer concurrent apps, smaller
-per-VM allocations, or a larger WSL2 memory budget if the host allows
-it).
-
-**Known issue surfaced during this install (2026-07-19):** VM guest
-clocks can silently drift under host CPU pressure (KVM vCPU scheduling
-pauses), even while `timedatectl` reports "System clock synchronized:
-yes" — the daemon believes it's correct based on its last check, not
-in real time. This broke the Grafana Gateway's self-signed TLS cert
-validation (`cp-2`/`w-1`/`w-2` were ~20 minutes behind `cp-1` and real
-time; Envoy Gateway runs on a worker, so it saw the cert as
-"not yet valid"). Fixed ad hoc with `systemctl restart
-systemd-timesyncd` on the affected nodes. Not yet automated — tracked
-as a follow-up to add a clock-sync check/fix across all 4 VMs to
-`morning-check.sh`.
-
 **Follow-up (2026-07-19):** `scripts/pipeline/main.sh` now prompts
 interactively for exactly one application (Rancher, ArgoCD, or
 Observability) after the cluster + Gateway API install, instead of
@@ -2077,3 +2053,92 @@ more memory (planned for later this year), not a one-off workaround.
 `lab-management.sh` right after `sync-ssh-config.sh` (same spot as the
 network fixes), and a real per-VM check in `morning-check.sh` (drift
 < 30s against the WSL2 host clock). No longer a manual, ad hoc fix.
+
+## ADR-032: Log aggregation via Loki + Grafana Alloy, wired into the existing Grafana
+
+**Date:** 2026-07-19
+**Status:** Accepted
+
+**Context:**
+Metrics (ADR-031) cover half the observability picture; log aggregation
+was the other half planned for this stage. Per ADR-030, the canonical
+source is Artifact Hub. Grafana Loki is the natural pairing with the
+already-installed kube-prometheus-stack Grafana instance, and matches
+the metrics+logs pattern used in the author's day job.
+
+Two chart-sourcing details changed recently and had to be accounted
+for: Loki's Helm chart moved to a new repo,
+`grafana-community/helm-charts`, as of 2026-03-16 (the old
+`grafana/helm-charts` location for the `loki` chart is stale). Promtail
+— the traditional log-shipping agent — reached EOL on 2026-03-02;
+Grafana Labs' supported replacement is Grafana Alloy.
+
+Same RAM constraint as ADR-031 applies: no StorageClass exists in this
+lab, and the lab runs one application at a time (ADR-031's follow-up).
+
+**Decision:**
+Installed `loki` (chart `18.4.4`, repo
+`https://grafana-community.github.io/helm-charts`) in `SingleBinary`
+deployment mode with filesystem storage, `auth_enabled: false`,
+`replication_factor: 1`, and read/write/backend/gateway/caches all
+disabled — the single-binary/no-cache shape matches the same
+minimal-footprint reasoning used for Prometheus/Alertmanager sizing in
+ADR-031. Resources: 128Mi/256Mi memory request/limit, 50m cpu.
+
+Installed `alloy` (chart `1.10.0`, app `v1.17.0`, repo
+`https://grafana.github.io/helm-charts`) as the log-shipping agent,
+configured to collect pod logs via the Kubernetes API
+(`discovery.kubernetes` + `loki.source.kubernetes`) rather than the
+traditional hostPath/`/var/log` tail — this avoids running Alloy as a
+privileged DaemonSet. Forwards to Loki's push endpoint via
+`loki.write`. Resources: 64Mi/128Mi memory request/limit, 50m cpu.
+Added `controller.tolerations` for
+`node-role.kubernetes.io/control-plane:NoSchedule` so the DaemonSet
+also collects logs from control-plane-only pods (kube-vip, Calico,
+etc.) — without it, only 2 of 4 nodes got an Alloy pod.
+
+Grafana wired to Loki via `additionalDataSources` in the existing
+`kubernetes/manifests/observability/values.yaml` (ADR-031) — no new
+Grafana install, same instance now serves both metrics and logs.
+
+**Bug found and fixed during install:** `loki.source.kubernetes` does
+not promote `namespace`/`pod`/`container` to actual Loki labels by
+default — it only used them internally to know what to tail, and the
+resulting streams carried just `instance`/`job` labels. Queries like
+`{namespace="monitoring"}` matched zero streams even though logs were
+being ingested (confirmed via Alloy's own logs showing `tailer
+running`). Fixed by adding an explicit `discovery.relabel` component
+between `discovery.kubernetes` and `loki.source.kubernetes`, mapping
+`__meta_kubernetes_namespace` / `__meta_kubernetes_pod_name` /
+`__meta_kubernetes_pod_container_name` to `namespace` / `pod` /
+`container` labels. Verified afterward in Grafana Explore: logs
+present with correct labels.
+
+**Rejected alternatives:**
+- **Promtail.** Reached EOL 2026-03-02; Grafana Labs no longer
+  supports it. Alloy is the direct replacement.
+- **hostPath-based log tailing (`loki.source.file` + host mount).**
+  Would require privileged DaemonSet pods with host filesystem access.
+  The Kubernetes-API-based approach (`loki.source.kubernetes`) reads
+  logs through the kubelet API instead, no privileged access needed.
+- **Loki distributed (microservices) mode.** Massive overkill for a
+  single-user personal lab; `SingleBinary` mode matches the same
+  minimal-footprint philosophy already established for Prometheus/
+  Alertmanager in ADR-031.
+
+**Trade-offs accepted:**
+- Ephemeral storage — log history is lost on pod restart, same
+  trade-off already accepted for Prometheus/Grafana in ADR-031.
+- No query/results caching (`chunksCache`/`resultsCache` disabled) —
+  acceptable at this log volume, would need revisiting if usage grows.
+- No multi-tenancy (`auth_enabled: false`) — fine for a single-user lab.
+
+**References:**
+- Artifact Hub — Loki chart
+  (artifacthub.io/packages/helm/grafana-community/loki)
+- Artifact Hub — Grafana Alloy chart
+  (artifacthub.io/packages/helm/grafana/alloy)
+- Grafana Labs — Promtail deprecation notice
+  (grafana.com/docs/loki/latest/send-data/promtail/)
+- Grafana Alloy docs — `loki.source.kubernetes` component reference
+  (grafana.com/docs/alloy/latest/reference/components/loki/loki.source.kubernetes/)

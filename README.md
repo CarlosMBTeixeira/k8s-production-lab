@@ -11,14 +11,14 @@ for the CKA certification and as a demonstrable portfolio project for DevOps wor
   replacing ingress-nginx after its 2026-03-31 EOL)
 - **Applications:** installed via Helm charts sourced from Artifact Hub (ADR-030) —
   ArgoCD (GitOps), Rancher (cluster management), kube-prometheus-stack
-  (Prometheus + Grafana + Alertmanager, ADR-031)
-- **Tooling:** Ansible (provisioning), Helm, ArgoCD, Rancher, Prometheus/Grafana
+  (Prometheus + Grafana + Alertmanager, ADR-031), Loki + Grafana Alloy
+  (log aggregation, ADR-032)
+- **Tooling:** Ansible (provisioning), Helm, ArgoCD, Rancher, Prometheus/Grafana/Loki
 - **RAM constraint:** the host only comfortably runs one application
   (Rancher, ArgoCD, or the observability stack) at a time until more RAM
   is added later this year (ADR-031) — `main.sh` prompts for which one
   to install each run
-- **Planned:** Loki (logs, alongside the existing observability stack),
-  Cert-Manager + Network Policies + External Secrets + Pod Security
+- **Planned:** Cert-Manager + Network Policies + External Secrets + Pod Security
   (security layer)
 
 ## Architecture
@@ -111,6 +111,7 @@ author's day-job GitOps setup.
 - [x] July Week 5: WSL2/Multipass networking fully automated — Docker DOCKER-USER chain, Multipass inbound-connection rule, and the Windows-side route are all scripted and idempotent (ADR-029 resolved)
 - [x] July Week 5: ArgoCD GitOps mechanics learned end-to-end — separate manifests repo, first Application, manual sync, auto-sync + self-heal (verified via live drift test), rollback via `git revert`
 - [x] July Week 5: kube-prometheus-stack (Prometheus + Grafana + Alertmanager) installed via Helm, sized to the lab's RAM budget (ADR-031); `main.sh` now prompts for exactly one application per install run, since Rancher + ArgoCD + observability don't comfortably coexist yet
+- [x] July Week 5: Loki + Grafana Alloy installed for log aggregation, wired into the existing Grafana via `additionalDataSources` (ADR-032); replaces Promtail, which reached EOL 2026-03-02
 
 ## Known issues
 - VM guest clocks can silently drift under host CPU pressure even while

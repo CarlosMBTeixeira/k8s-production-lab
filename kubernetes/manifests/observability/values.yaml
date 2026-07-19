@@ -1,5 +1,6 @@
 # kube-prometheus-stack values, sized for a 4-node lab (4GB RAM/VM).
-# See ADR-031 for the reasoning behind every non-default value here.
+# See ADR-031 for the reasoning behind every non-default value here,
+# and ADR-032 for the Loki datasource added below.
 
 prometheus:
   prometheusSpec:
@@ -27,6 +28,12 @@ grafana:
       memory: 128Mi
     limits:
       memory: 256Mi
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring.svc.cluster.local:3100
+      access: proxy
+      isDefault: false
 
 # kubeadm binds these control-plane components to 127.0.0.1 by default,
 # so the chart's default ServiceMonitors for them fail to scrape.

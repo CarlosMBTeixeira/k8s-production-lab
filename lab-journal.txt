@@ -231,3 +231,49 @@ follow-up). Otherwise July's scope is now fully closed — Rancher,
 ArgoCD, and observability all demonstrated end-to-end, well ahead of
 the original plan. August is the planned break; September shifts to
 Loki + revisiting concurrent app hosting once more RAM is available.
+
+=== Log aggregation: Loki + Grafana Alloy, wired into Grafana — 22:26 19-07-2026 ===
+Closed out the observability stack with log aggregation. Loki (chart
+18.4.4, note the repo moved to grafana-community/helm-charts as of
+2026-03-16 — the old grafana/helm-charts location for this chart is
+stale now) in SingleBinary mode, filesystem storage, no read/write/
+backend/gateway/caches — same minimal-footprint shape as Prometheus/
+Alertmanager. Grafana Alloy (chart 1.10.0) as the log shipper, since
+Promtail hit EOL on 2026-03-02. Alloy collects logs via the Kubernetes
+API (discovery.kubernetes + loki.source.kubernetes) rather than a
+hostPath /var/log mount, so no privileged DaemonSet needed.
+
+First snag: Alloy's DaemonSet only scheduled on 2 of 4 nodes — missing
+a toleration for the control-plane NoSchedule taint. Fixed by adding
+controller.tolerations to alloy-values.yaml.
+
+Second snag, more interesting: after wiring Grafana to Loki via
+additionalDataSources and confirming the datasource showed up fine,
+Explore returned "no logs found" with a namespace filter, even though
+Alloy's own logs showed it actively tailing pods. Root cause:
+loki.source.kubernetes doesn't promote namespace/pod/container to
+actual Loki labels by default — it only uses those meta-labels
+internally to know what to tail. The resulting streams only carried
+instance/job labels, so {namespace="monitoring"} matched nothing.
+Fixed by adding a discovery.relabel component between
+discovery.kubernetes and loki.source.kubernetes, explicitly mapping
+__meta_kubernetes_namespace/__meta_kubernetes_pod_name/
+__meta_kubernetes_pod_container_name to namespace/pod/container.
+Verified in Explore afterward — 96 log lines, correct labels.
+
+Also caught and fixed a real duplication bug in docs/decisions.md
+while writing ADR-032: an earlier append had left ADR-031's
+"Resolution" and "Known issue" notes duplicated back-to-back. Cleaned
+up before adding the new ADR.
+
+Folded the Loki + Alloy install into scripts/pipeline/06_observability.sh
+(previously only kube-prometheus-stack) so the "Observability" choice
+in main.sh's one-app-at-a-time prompt installs the full stack — metrics
+and logs — in one go from a clean rebuild.
+
+Status: full observability stack (Prometheus, Alertmanager, Grafana,
+Loki, Alloy) healthy across all 4 nodes, Grafana serving both metrics
+and logs from one instance. ADR-032 documents the chart choices and
+the relabeling bug. September's original plan (Rancher, ArgoCD,
+observability with Loki) is now fully closed, including the Loki piece
+that was originally scoped for later.
