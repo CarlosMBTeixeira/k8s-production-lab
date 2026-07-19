@@ -1885,8 +1885,10 @@ docs.docker.com/engine/network/packet-filtering-firewalls/#docker-user).
 Second, `multipass list` returned stale cached IPs after a VM
 rebuild, so an early retest targeted a dead address and produced
 misleading ICMP redirects from an unrelated host. With the Windows
-route (`scripts/windows/setup-route.ps1`), the DOCKER-USER fix
-(`scripts/fix-docker-forward.sh`, wired into `lab-management.sh`),
+route (`scripts/windows/setup-route.ps1`), the network-access fix
+(`scripts/fix-network-access.sh` — DOCKER-USER rule plus a matching
+`iptables-legacy` ACCEPT for new inbound connections, wired into
+`lab-management.sh`),
 and the correct current IP, direct HTTPS access to Rancher and ArgoCD
 from Windows now works cleanly (`curl -k https://<gateway-ip>/healthz`
 returns 200). The original `rp_filter`/asymmetric-routing theory

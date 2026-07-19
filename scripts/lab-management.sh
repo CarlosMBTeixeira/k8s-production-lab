@@ -32,7 +32,7 @@ SCRIPT_DIR="$(dirname "$0")"
 LAUNCH_SCRIPT="${SCRIPT_DIR}/launch-node.sh"
 SYNC_SCRIPT="${SCRIPT_DIR}/sync-ssh-config.sh"
 CHECK_SCRIPT="${SCRIPT_DIR}/morning-check.sh"
-FIX_NETWORK_SCRIPT="${SCRIPT_DIR}/fix-docker-forward.sh"
+FIX_NETWORK_SCRIPT="${SCRIPT_DIR}/fix-network-access.sh"
 
 # ----------------------------------------------------------------------------
 # Argument parsing
@@ -150,6 +150,11 @@ do_build() {
     fi
 
     # Provision each VM sequentially.
+    # Ensure the WSL2 host allows traffic into the Multipass bridge
+    # before any VM boots, so cloud-init (and later Ansible) always
+    # has working internet from the very first boot.
+    "$FIX_NETWORK_SCRIPT"
+
     for vm in "${VMS[@]}"; do
         echo ""
         echo "  --- Launching $vm ---"
@@ -161,7 +166,6 @@ do_build() {
     echo "|---------------------------------------------------------------------------"
     echo "| Synchronizing ~/.ssh/config"
     echo "|---------------------------------------------------------------------------"
-    "$FIX_NETWORK_SCRIPT"
     "$SYNC_SCRIPT"
 
     # Brief pause for cloud-init to finalize before health check.
@@ -256,6 +260,11 @@ do_rebuild() {
     # because we just destroyed them).
     START_TIME=$(date +%s)
 
+    # Ensure the WSL2 host allows traffic into the Multipass bridge
+    # before any VM boots, so cloud-init (and later Ansible) always
+    # has working internet from the very first boot.
+    "$FIX_NETWORK_SCRIPT"
+
     for vm in "${VMS[@]}"; do
         echo ""
         echo "  --- Launching $vm ---"
@@ -266,7 +275,6 @@ do_rebuild() {
     echo "|---------------------------------------------------------------------------"
     echo "| Synchronizing ~/.ssh/config"
     echo "|---------------------------------------------------------------------------"
-    "$FIX_NETWORK_SCRIPT"
     "$SYNC_SCRIPT"
 
     echo ""
