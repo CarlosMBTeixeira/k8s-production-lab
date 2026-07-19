@@ -33,6 +33,7 @@ LAUNCH_SCRIPT="${SCRIPT_DIR}/launch-node.sh"
 SYNC_SCRIPT="${SCRIPT_DIR}/sync-ssh-config.sh"
 CHECK_SCRIPT="${SCRIPT_DIR}/morning-check.sh"
 FIX_NETWORK_SCRIPT="${SCRIPT_DIR}/fix-network-access.sh"
+FIX_CLOCKS_SCRIPT="${SCRIPT_DIR}/fix-vm-clocks.sh"
 
 # ----------------------------------------------------------------------------
 # Argument parsing
@@ -167,6 +168,7 @@ do_build() {
     echo "| Synchronizing ~/.ssh/config"
     echo "|---------------------------------------------------------------------------"
     "$SYNC_SCRIPT"
+    "$FIX_CLOCKS_SCRIPT"
 
     # Brief pause for cloud-init to finalize before health check.
     echo ""
@@ -276,6 +278,7 @@ do_rebuild() {
     echo "| Synchronizing ~/.ssh/config"
     echo "|---------------------------------------------------------------------------"
     "$SYNC_SCRIPT"
+    "$FIX_CLOCKS_SCRIPT"
 
     echo ""
     echo "|---------------------------------------------------------------------------"

@@ -70,6 +70,23 @@ echo "SSH access:"
 for alias in cp-1 cp-2 w-1 w-2; do
     check "ssh $alias works"            "ssh -o ConnectTimeout=5 $alias 'true'"
 done
+echo "Clock sync:"
+HOST_EPOCH_FOR_CHECK=$(date -u +%s)
+for alias in cp-1 cp-2 w-1 w-2; do
+    vm_epoch=$(ssh -o ConnectTimeout=5 "$alias" 'date -u +%s' 2>/dev/null)
+    if [ -z "$vm_epoch" ]; then
+        drift_ok="false"
+    else
+        drift=$((vm_epoch - HOST_EPOCH_FOR_CHECK))
+        abs_drift=${drift#-}
+        if [ "$abs_drift" -lt 30 ]; then
+            drift_ok="true"
+        else
+            drift_ok="false"
+        fi
+    fi
+    check "$alias clock drift < 30s" "[ \"$drift_ok\" = \"true\" ]"
+done
 echo ""
 
 echo "Repo:"
