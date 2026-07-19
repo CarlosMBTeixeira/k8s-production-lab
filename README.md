@@ -114,7 +114,6 @@ author's day-job GitOps setup.
 
 ## Known issues
 - VM guest clocks can silently drift under host CPU pressure even while
-  `timedatectl` reports synchronized — surfaced as a TLS validation
-  failure during the observability install. Fixed ad hoc; not yet
-  automated (tracked as a follow-up to add a clock check to
-  `morning-check.sh`).
+  `timedatectl` reports synchronized. Automated: `scripts/fix-vm-clocks.sh`
+  runs on every `lab-management.sh build`/`rebuild`, and `morning-check.sh`
+  checks drift on every VM (< 30s threshold) each session.
