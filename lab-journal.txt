@@ -133,3 +133,41 @@ question open), then first Application + manual sync (Day 4),
 auto-sync/self-heal/drift test (Day 5), rollback test (Day 6). After
 that, September shifts to just the observability stack, since Rancher
 and ArgoCD are already done.
+
+=== Semana 2 (ArgoCD): GitOps repo, first Application, sync, self-heal, rollback — 18:50 19-07-2026 ===
+Created a separate repo (github.com/CarlosMBTeixeira/k8s-gitops) for
+GitOps manifests, kept apart from k8s-production-lab (infra-as-code
+vs. desired state), matching the day-job pattern. Started with a
+minimal hello-world nginx app to learn the ArgoCD mechanics before
+putting anything real through it.
+
+Day 4: created the first Application (kubernetes/manifests/argocd/apps/
+hello-world-app.yaml) with manual syncPolicy, applied it, watched it
+go OutOfSync/Missing, then did the first manual sync via the UI —
+Synced/Healthy, 2 pods up.
+
+Day 5: switched the Application to syncPolicy.automated (prune +
+selfHeal), then tested drift by scaling the deployment to 5 replicas
+directly via kubectl — ArgoCD reverted it to 2 (the Git-declared
+value) within ~15s on its own. Confirmed the core GitOps rule
+concretely: with selfHeal on, kubectl changes to resources an
+Application manages are always temporary, Git is the real source of
+truth for those resources (everything else in the cluster is
+unaffected).
+
+Day 6: rollback test, done the correct way for an auto-synced app —
+not an ArgoCD UI rollback (which would just get immediately re-synced
+back to HEAD), but a `git revert` in the GitOps repo. Scaled to 4
+replicas via a Git commit (auto-synced on its own within 30s), then
+reverted that commit and watched ArgoCD apply the revert automatically
+— back to 2/2, Synced/Healthy.
+
+Status: Semana 2 (ArgoCD) fully closed — install, first app, manual
+sync, auto-sync/self-heal, and Git-based rollback all demonstrated
+end-to-end. k8s-gitops repo structure (apps/<name>/) ready to take on
+real applications next.
+
+Next: September's remaining scope is now just the observability stack
+(Prometheus/Grafana/Loki via Helm from Artifact Hub, per ADR-030),
+since Rancher and ArgoCD moved up into July. Could start that early
+given the pace so far, or treat August as the planned break.
