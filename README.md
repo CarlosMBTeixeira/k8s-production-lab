@@ -10,10 +10,16 @@ for the CKA certification and as a demonstrable portfolio project for DevOps wor
 - **Networking:** Calico (CNI), Gateway API via Envoy Gateway + MetalLB (LoadBalancer/ingress,
   replacing ingress-nginx after its 2026-03-31 EOL)
 - **Applications:** installed via Helm charts sourced from Artifact Hub (ADR-030) —
-  ArgoCD (GitOps) and Rancher (cluster management) so far
-- **Tooling:** Ansible (provisioning), Helm, ArgoCD, Rancher
-- **Planned:** Prometheus + Grafana + Loki (observability), Cert-Manager + Network
-  Policies + External Secrets + Pod Security (security layer)
+  ArgoCD (GitOps), Rancher (cluster management), kube-prometheus-stack
+  (Prometheus + Grafana + Alertmanager, ADR-031)
+- **Tooling:** Ansible (provisioning), Helm, ArgoCD, Rancher, Prometheus/Grafana
+- **RAM constraint:** the host only comfortably runs one application
+  (Rancher, ArgoCD, or the observability stack) at a time until more RAM
+  is added later this year (ADR-031) — `main.sh` prompts for which one
+  to install each run
+- **Planned:** Loki (logs, alongside the existing observability stack),
+  Cert-Manager + Network Policies + External Secrets + Pod Security
+  (security layer)
 
 ## Architecture
 
@@ -37,16 +43,18 @@ left running between uses.
 #    run a health check. Safe to run repeatedly.
 ./scripts/lab-management.sh rebuild --force
 
-# 2. Provision Kubernetes + Gateway API/MetalLB + Rancher + ArgoCD.
+# 2. Provision Kubernetes + Gateway API/MetalLB, then pick ONE application
+#    to install (Rancher / ArgoCD / Observability) — the RAM budget
+#    doesn't comfortably fit more than one at once (ADR-031).
 bash scripts/pipeline/main.sh
 ```
 
-### Accessing Rancher / ArgoCD from Windows
+### Accessing lab UIs from Windows
 
 Two options, both documented in ADR-029:
 
 - **SSH tunnel (always works, no setup):**
-  `./scripts/tunnels/rancher-tunnel.sh` / `./scripts/tunnels/argocd-tunnel.sh`,
+  `./scripts/tunnels/rancher-tunnel.sh` / `argocd-tunnel.sh` / `grafana-tunnel.sh`,
   then browse to `https://localhost:<port>/`.
 - **Direct IP access (faster, needs one setup step per Windows session):**
   run `scripts/windows/setup-route.ps1` once from an elevated PowerShell
@@ -69,14 +77,21 @@ bash scripts/morning-check.sh
 Run automatically at the end of `lab-management.sh build`/`rebuild`, or
 standalone any time to check current state.
 
+## GitOps repo
+
+Kubernetes manifests deployed through ArgoCD live in a separate repo,
+[k8s-gitops](https://github.com/CarlosMBTeixeira/k8s-gitops) — kept apart
+from this repo on purpose (infra-as-code vs. desired state), matching the
+author's day-job GitOps setup.
+
 ## Roadmap (8 months)
 
 | Month | Focus |
 |---|---|
 | June 2026 | Provisioning automation (Multipass + Ansible) |
-| July 2026 | kubeadm HA cluster + **CKA exam** + Rancher + ArgoCD (moved up from September) |
+| July 2026 | kubeadm HA cluster + **CKA exam** + Rancher + ArgoCD + observability stack (moved up from September) |
 | August 2026 | Vacation |
-| September 2026 | Observability stack (Prometheus, Grafana, Loki) |
+| September 2026 | Loki (logs) + more RAM for the host, revisit running Rancher/ArgoCD/observability together |
 | October 2026 | Security layer + portfolio close |
 | November 2026 | Terraform AI agent (separate project) |
 
@@ -94,3 +109,12 @@ standalone any time to check current state.
 - [x] July Week 5: Windows access to lab UIs — SSH tunnel (default) and direct IP access (ADR-029)
 - [x] July Week 5: Helm charts from Artifact Hub established as the standard for all application installs (ADR-030); ArgoCD is the first application under this policy
 - [x] July Week 5: WSL2/Multipass networking fully automated — Docker DOCKER-USER chain, Multipass inbound-connection rule, and the Windows-side route are all scripted and idempotent (ADR-029 resolved)
+- [x] July Week 5: ArgoCD GitOps mechanics learned end-to-end — separate manifests repo, first Application, manual sync, auto-sync + self-heal (verified via live drift test), rollback via `git revert`
+- [x] July Week 5: kube-prometheus-stack (Prometheus + Grafana + Alertmanager) installed via Helm, sized to the lab's RAM budget (ADR-031); `main.sh` now prompts for exactly one application per install run, since Rancher + ArgoCD + observability don't comfortably coexist yet
+
+## Known issues
+- VM guest clocks can silently drift under host CPU pressure even while
+  `timedatectl` reports synchronized — surfaced as a TLS validation
+  failure during the observability install. Fixed ad hoc; not yet
+  automated (tracked as a follow-up to add a clock check to
+  `morning-check.sh`).
