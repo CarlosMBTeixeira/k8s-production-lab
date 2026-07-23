@@ -2265,3 +2265,118 @@ application.
   (cert-manager.io/docs/configuration/acme/dns01/cloudflare/)
 - Let's Encrypt — rate limits
   (letsencrypt.org/docs/rate-limits/)
+
+## ADR-034: Network Policies for the monitoring namespace (default-deny + explicit allows)
+
+**Date:** 2026-07-23
+**Status:** Accepted
+
+**Context:**
+Every pod in the cluster has had unrestricted network access to every
+other pod so far — no NetworkPolicy of any kind existed. With Calico
+already in place as the CNI (ADR-016), which fully implements the
+standard Kubernetes `NetworkPolicy` API, there's no reason not to move
+the `monitoring` namespace (the only application namespace currently
+live) to a default-deny baseline with explicit allows per real traffic
+flow, rather than flat-open pod-to-pod access.
+
+Calico also ships its own `NetworkPolicy`/`GlobalNetworkPolicy` CRDs,
+which are more expressive (L3-L7 rules, non-namespaced global policies,
+explicit rule ordering by priority). Standard Kubernetes `NetworkPolicy`
+was chosen instead: it's portable to any CNI, and — since this lab
+doubles as CKA exam prep — it's the actual API surface tested on the
+exam. Calico implements it natively with no extra installation step.
+
+**Decision:**
+Wrote `kubernetes/manifests/network_policies/monitoring.yaml`: a
+`default-deny-all` policy (Ingress + Egress, empty `podSelector`) plus
+13 targeted allow policies covering every real flow observed in the
+running cluster:
+
+- DNS egress (all pods → CoreDNS, `kube-system`, port 53)
+- API server egress for the pods that watch/list cluster resources
+  (Grafana's sidecars, kube-state-metrics, Alloy, the Prometheus
+  Operator) → `kube-system` pods labeled `component=kube-apiserver`,
+  port 6443
+- Envoy Gateway → Grafana ingress (from the `envoy-gateway-system`
+  namespace, port 3000 — the real container port, not the Service's
+  port 80)
+- Grafana → Prometheus/Loki/Alertmanager egress (datasource queries)
+- Alloy → Loki egress (log push)
+- Prometheus → kube-state-metrics/Operator/Alertmanager/apiserver/
+  node-exporter/CoreDNS egress (scrape targets)
+- Matching ingress policies on the receiving side of each flow above
+  (Prometheus, Loki, Alertmanager, kube-state-metrics, the Operator's
+  admission webhook)
+
+Traffic flows and exact container ports (which don't always match the
+Service port — e.g. Grafana's Service exposes 80 but the container
+listens on 3000; the Operator's Service exposes 443 but the webhook
+container listens on 10250) were confirmed directly against the live
+cluster (`kubectl get pods -o jsonpath` for container ports, `kubectl
+get svc -o wide` for Service/selector mapping) rather than assumed
+from the chart's default values.
+
+**Two findings from validating against the running cluster:**
+
+1. **CoreDNS scraping was missed on the first pass** — the Prometheus
+   ServiceMonitor for CoreDNS scrapes port 9153 directly, which wasn't
+   in the original egress allow-list. Caught immediately via
+   Prometheus's own `/targets` page (0/2 up, "context deadline
+   exceeded") after applying, and fixed by adding an explicit egress
+   rule to `allow-prometheus-scrape-egress`.
+
+2. **Kubelet scraping (port 10250, direct to each node's real IP)
+   worked without any explicit allow rule for it.** This isn't a bug
+   in the policy — it's a real, documented scope limit of the
+   Kubernetes `NetworkPolicy` API itself: it governs pod-to-pod and
+   pod-to-ClusterIP traffic, not pod-to-node-IP (host-level) traffic,
+   because the kubelet is a host process, not a Pod object Calico can
+   apply workload policy against. Reaching it would require Calico's
+   own `HostEndpoint` + `GlobalNetworkPolicy` CRDs — a different
+   mechanism than what this ADR scopes to. This matches known
+   Kubernetes hardening guidance (CIS Benchmark, NSA/CISA hardening
+   guide): kubelet API exposure is a documented gap that standard
+   NetworkPolicy alone does not close, and is generally addressed with
+   kubelet's own authn/authz settings or host-level firewalling, not
+   pod-level NetworkPolicy.
+
+**Validated** by re-checking Grafana access through the existing SSH
+tunnel (unaffected) and Prometheus's `/targets` page after applying:
+every ServiceMonitor target reached `up`, including the CoreDNS fix.
+
+**Rejected alternatives:**
+- **Calico `GlobalNetworkPolicy`/`NetworkPolicy` CRDs.** More capable,
+  but CNI-specific and not what's tested on the CKA exam — standard
+  `NetworkPolicy` was the better fit for this lab's dual purpose.
+- **Cluster-wide default-deny in one pass.** Considered and rejected
+  for the first iteration — `kube-system` (CoreDNS, apiserver,
+  kubelet) and `cert-manager` (webhook, called by the apiserver) carry
+  real risk of an outage if a required flow is missed, and the
+  `monitoring` namespace was the only live application namespace
+  anyway. The pattern established here (map real traffic first, write
+  default-deny + explicit allows, validate against `/targets` or
+  equivalent, fix gaps) is meant to be repeated per-namespace as
+  Rancher/ArgoCD are reinstalled, not applied blind cluster-wide.
+
+**Trade-offs accepted:**
+- `kube-system`, `cert-manager`, `envoy-gateway-system`, and
+  `metallb-system` remain fully open (no NetworkPolicy) — only
+  `monitoring` is locked down for now.
+- `prometheus-node-exporter` (hostNetwork) is covered by an explicit
+  allow rule and was confirmed working, but NetworkPolicy enforcement
+  against hostNetwork pod destinations is less consistently documented
+  across CNI implementations than normal pod-to-pod traffic; treat
+  this as verified-for-this-cluster rather than a guaranteed general
+  behavior.
+- Kubelet's port 10250 remains reachable from any pod in the cluster
+  regardless of NetworkPolicy, as explained above — a known, accepted
+  gap rather than an oversight.
+
+**References:**
+- Kubernetes docs — Network Policies
+  (kubernetes.io/docs/concepts/services-networking/network-policies/)
+- Calico docs — Kubernetes NetworkPolicy vs Calico NetworkPolicy
+  (docs.tigera.io/calico/latest/network-policy/)
+- CIS Kubernetes Benchmark — kubelet API exposure guidance
+- NSA/CISA Kubernetes Hardening Guide

@@ -24,8 +24,9 @@ echo "Which application do you want to install?"
 echo "  1) Rancher"
 echo "  2) ArgoCD"
 echo "  3) Observability (kube-prometheus-stack + Loki)"
-echo "  4) None -- just the cluster + Gateway API + cert-manager"
-read -r -p "Choice [1/2/3/4]: " APP_CHOICE
+echo "  4) Network Policies (monitoring namespace, requires Observability already installed)"
+echo "  5) None -- just the cluster + Gateway API + cert-manager"
+read -r -p "Choice [1/2/3/4/5]: " APP_CHOICE
 
 if [ "$APP_CHOICE" = "1" ]; then
     source "${SCRIPT_DIR}/05_rancher.sh"
@@ -49,6 +50,12 @@ elif [ "$APP_CHOICE" = "3" ]; then
     echo "| Run ./scripts/tunnels/grafana-tunnel.sh to access Grafana in the browser."
     echo "==========================================================================="
 elif [ "$APP_CHOICE" = "4" ]; then
+    source "${SCRIPT_DIR}/08_network_policies.sh"
+    echo ""
+    echo "==========================================================================="
+    echo "| Installation complete: Network Policies (monitoring)."
+    echo "==========================================================================="
+elif [ "$APP_CHOICE" = "5" ]; then
     echo ""
     echo "Skipping application install -- cluster + Gateway API + cert-manager only."
 else

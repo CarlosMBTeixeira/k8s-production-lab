@@ -342,3 +342,69 @@ Status: cert-manager + ClusterIssuer fully working and documented
 on their own self-signed certs for now — wiring real per-app certs
 into the Gateways, with the SNI/hosts-file implications, is deferred
 until it's worth making that trade-off for a specific app.
+
+=== Network Policies: default-deny + explicit allows for monitoring — 23:09 23-07-2026 ===
+Moved on from cert-manager to network segmentation. Calico (already the
+CNI, ADR-016) implements the standard Kubernetes NetworkPolicy API
+natively, so no new install needed -- just manifests. Went with
+standard NetworkPolicy over Calico's own GlobalNetworkPolicy CRDs: it's
+portable, and it's literally what's tested on the CKA exam, which this
+lab still doubles as prep for.
+
+Scoped to the monitoring namespace only for this first pass -- it's the
+only live application namespace right now, and going cluster-wide in
+one shot (including kube-system and cert-manager) felt like asking for
+an outage from a missed flow. Rebuilt the cluster earlier today, so had
+to reinstall observability from scratch to have real pods to map
+traffic against -- also caught a stale-kubeconfig gotcha along the way:
+the KUBECONFIG export inside a pipeline script only lives inside that
+script's own subprocess, doesn't persist to the interactive shell, so
+running kubectl commands afterward needs a fresh export.
+
+Mapped every real flow before writing anything: DNS, apiserver access
+for the components that watch/list resources (Grafana's sidecars,
+kube-state-metrics, Alloy, the Operator), Gateway-to-Grafana ingress,
+Grafana's three datasource queries (Prometheus/Loki/Alertmanager),
+Alloy-to-Loki, and everything Prometheus itself scrapes. Confirmed
+exact container ports directly against the live pods rather than
+assuming from chart defaults -- caught two mismatches doing this:
+Grafana's Service exposes port 80 but the container listens on 3000,
+and the Operator's Service exposes 443 but the webhook container is
+actually on 10250.
+
+Wrote 13 NetworkPolicies (default-deny-all + 12 explicit allows) into
+kubernetes/manifests/network_policies/monitoring.yaml. Caught a
+self-inflicted bug before applying -- left a nonsensical leftover
+matchExpression in one selector while drafting -- fixed it before it
+ever touched the cluster.
+
+Applied, then validated properly instead of just checking pods stayed
+Running: tunnelled into Grafana (still worked), then checked
+Prometheus's own /targets page, which is a much better signal since a
+blocked scrape doesn't crash anything, it just goes quietly red.
+Everything came up green except CoreDNS (0/2, "context deadline
+exceeded") -- a real gap, I'd missed that Prometheus scrapes CoreDNS
+directly on port 9153. Added the missing egress rule, reapplied,
+fixed.
+
+One more thing worth remembering: kubelet's own metrics endpoint
+(port 10250, hit directly on each node's real IP) worked fine despite
+no explicit rule allowing it -- and that's correct, not a leak. Standard
+Kubernetes NetworkPolicy only governs pod-to-pod and pod-to-ClusterIP
+traffic; kubelet is a host process, not a Pod object, so Calico can't
+apply workload policy against it without a separate mechanism
+(HostEndpoint + GlobalNetworkPolicy, Calico-specific, out of scope
+here). This is a known, documented gap in the K8s hardening world, not
+something this policy set failed to catch.
+
+Folded the whole thing into a new 08_network_policies.sh, kept as its
+own menu option (4) in main.sh rather than auto-chaining after
+observability, since it's reapplicable independently and doesn't need
+to run every single time observability does.
+
+Status: monitoring namespace locked to default-deny, 13 policies
+documented in ADR-034, validated end-to-end against a live cluster
+including the CoreDNS gap and the kubelet finding. kube-system,
+cert-manager, envoy-gateway-system, and metallb-system remain open --
+same namespace-at-a-time approach as everything else in this lab,
+meant to repeat when Rancher/ArgoCD are reinstalled.

@@ -14,6 +14,7 @@ NAMESPACE="cert-manager"
 DOMAIN="entraid-study.uk"
 ACME_EMAIL="cmbt1984@gmail.com"
 TOKEN_FILE="${REPO_ROOT}/secrets/cloudflare-api-token"
+CLUSTER_ISSUER="${REPO_ROOT}/kubernetes/manifests/cert_manager/clusterissuer.yaml"
 
 section() {
     echo ""
@@ -78,27 +79,7 @@ create_cloudflare_secret() {
 
 apply_cluster_issuer() {
     section "Applying ClusterIssuer letsencrypt-k8slab"
-    cat <<EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-k8slab
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${ACME_EMAIL}
-    privateKeySecretRef:
-      name: letsencrypt-k8slab-account-key
-    solvers:
-      - selector:
-          dnsZones:
-            - "${DOMAIN}"
-        dns01:
-          cloudflare:
-            apiTokenSecretRef:
-              name: cloudflare-api-token-secret
-              key: api-token
-EOF
+    kubectl apply -f "${CLUSTER_ISSUER}"
 }
 
 verify() {
