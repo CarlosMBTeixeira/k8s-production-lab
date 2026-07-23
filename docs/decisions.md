@@ -2142,3 +2142,126 @@ present with correct labels.
   (grafana.com/docs/loki/latest/send-data/promtail/)
 - Grafana Alloy docs — `loki.source.kubernetes` component reference
   (grafana.com/docs/alloy/latest/reference/components/loki/loki.source.kubernetes/)
+
+## ADR-033: cert-manager + Let's Encrypt via Cloudflare DNS-01 for real TLS certs
+
+**Date:** 2026-07-23
+**Status:** Accepted
+
+**Context:**
+Every application so far (Grafana, and previously Rancher/ArgoCD) has used
+self-signed TLS certs generated ad hoc per install script, which meant
+browser trust warnings and, more seriously, the VM clock-drift bug
+(ADR-031) that broke self-signed cert validity windows entirely. The
+author owns a real domain, `entraid-study.uk`, managed in Cloudflare,
+making real publicly-trusted certificates possible via Let's Encrypt.
+
+Per ADR-030, the canonical source is Artifact Hub. cert-manager is the
+de facto standard for this in Kubernetes and matches the tool used in
+the author's day job.
+
+The lab is not publicly reachable (SSH tunnel is the default access
+pattern, ADR-029) — no inbound port 80/443 is exposed to the internet.
+This rules out the ACME HTTP-01 challenge outright, since Let's
+Encrypt's servers would never be able to reach the lab. DNS-01 does
+not have this requirement: cert-manager only needs outbound access to
+the Cloudflare API to create a `_acme-challenge` TXT record, which the
+lab already has.
+
+**Decision:**
+Installed `cert-manager` (chart `v1.21.0`, repo
+`https://charts.jetstack.io`) via a new `scripts/pipeline/04_cert_manager.sh`,
+with `crds.enabled=true` (Helm manages the CRDs) and resource requests
+trimmed to 10m cpu / 32Mi memory per component (controller, webhook,
+cainjector), matching the lab's minimal-footprint pattern.
+
+Unlike Rancher/ArgoCD/Observability, cert-manager is installed
+**unconditionally** as cluster infra, in the same tier as Calico and
+MetalLB — it is small (~3 pods, well under 300Mi total) and every
+future application depends on it for real TLS. This meant renumbering
+the pipeline scripts: `04_rancher.sh` → `05_rancher.sh`,
+`05_argocd.sh` → `06_argocd.sh`, `06_observability.sh` →
+`07_observability.sh`, with `04_cert_manager.sh` running unconditionally
+in `main.sh` right after Gateway API setup, before the app-choice
+prompt. Historical mentions of the old script names in `decisions.md`
+and `lab-journal.txt` were deliberately left unchanged, since they
+describe what the scripts were actually called at the time; only the
+living reference doc `manual-bootstrap.md` and the scripts' own
+self-referencing header comments were updated.
+
+The same script also creates a `letsencrypt-k8slab` `ClusterIssuer`
+(named for the lab, not `letsencrypt-prod` — this isn't a production
+environment) using the DNS-01 solver, scoped to the `entraid-study.uk`
+zone via a `selector.dnsZones` match, pointed at Let's Encrypt's real
+production ACME server (not staging — see trade-offs below). The
+Cloudflare API token is read from `secrets/cloudflare-api-token`, a
+gitignored local file, rather than prompted interactively at install
+time like the Grafana/Rancher/ArgoCD admin passwords. This is a
+deliberate deviation from that pattern: the token is a long-lived
+Cloudflare account credential that doesn't change per rebuild, unlike
+a fresh admin password chosen per install, so retyping it on every
+`rebuild --force` would add friction without benefit. The script fails
+loudly with setup instructions if the file is missing.
+
+Certificates are managed as explicit `Certificate` resources (not the
+gateway-shim annotation-based automatic provisioning) — one per
+consumer, versioned and auditable, consistent with how the rest of
+this lab documents every decision explicitly rather than relying on
+implicit controller behavior.
+
+**Validation:** rather than wiring a Certificate into a live
+application's Gateway immediately, the ClusterIssuer was validated in
+isolation with a standalone test Certificate (`test.entraid-study.uk`
+in the `cert-manager` namespace). The DNS-01 challenge completed in
+under 2 minutes (Order and Challenge both reached `valid`), and the
+resulting cert was confirmed to be real:
+`issuer=C=US, O=Let's Encrypt, CN=YR2`, `subject=CN=test.entraid-study.uk`,
+90-day validity window. This proves the ClusterIssuer, Cloudflare
+integration, and DNS-01 flow end-to-end without touching any running
+application.
+
+**Rejected alternatives:**
+- **HTTP-01 solver.** Cannot work here — the lab has no public inbound
+  reachability (ADR-029), so Let's Encrypt could never complete the
+  challenge.
+- **gateway-shim (annotation-driven Certificates).** Would auto-create
+  Certificate resources from Gateway listener annotations. Less
+  explicit than a versioned `Certificate` manifest per consumer, and
+  this lab consistently favors explicit over implicit.
+- **Interactive prompt for the Cloudflare token on every install.**
+  Rejected because, unlike admin passwords, this credential is not
+  meant to change per rebuild — it's tied to a Cloudflare account and
+  scoped permissions. A gitignored local file removes retyping
+  friction while keeping the token out of git.
+- **`letsencrypt-prod` as the ClusterIssuer name.** Renamed to
+  `letsencrypt-k8slab` — the *server* correctly points at Let's
+  Encrypt's real production endpoint, but naming the *resource* "prod"
+  implied a production environment this lab isn't.
+
+**Trade-offs accepted:**
+- Went directly to Let's Encrypt's production ACME server, skipping a
+  staging-issuer dry run. Accepted the small risk of hitting the
+  production rate limit (5 failed validations/hour, 50 certs/domain/week)
+  in exchange for one less issuer to manage; the first real request
+  succeeded cleanly.
+- No application is wired to a real certificate yet. Grafana (and
+  Rancher/ArgoCD, when reinstalled) still use the self-signed
+  certs from their own install scripts. Wiring a real per-app
+  Certificate into a Gateway means adding `hostname` to the Gateway
+  listener for SNI-based routing — which ADR-029 deliberately avoided
+  — and would break the existing SSH-tunnel access pattern
+  (`https://localhost:8445/` sends SNI `localhost`, not the real
+  hostname) unless paired with a local hosts-file override pointing
+  the real hostname at `127.0.0.1`. Deferred as future work once
+  that trade-off is worth making for a specific app.
+- The `test-entraid-study-uk` Certificate and its Secret were left in
+  the `cert-manager` namespace as a live reference rather than cleaned
+  up after validation.
+
+**References:**
+- Artifact Hub — cert-manager chart
+  (artifacthub.io/packages/helm/cert-manager/cert-manager)
+- cert-manager docs — ACME DNS01 Cloudflare provider
+  (cert-manager.io/docs/configuration/acme/dns01/cloudflare/)
+- Let's Encrypt — rate limits
+  (letsencrypt.org/docs/rate-limits/)

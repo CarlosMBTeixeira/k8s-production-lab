@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# 04_rancher.sh — Install Rancher 2.14.3, exposed via a dedicated Gateway
+# 05_rancher.sh — Install Rancher 2.14.3, exposed via a dedicated Gateway
 # API resource (Gateway/rancher + HTTPRoute/rancher, kubernetes/manifests/rancher/).
 # ----------------------------------------------------------------------------
 # See ADR-026 for why Rancher gets its own Gateway instead of reusing

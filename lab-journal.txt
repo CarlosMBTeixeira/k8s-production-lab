@@ -277,3 +277,68 @@ and logs from one instance. ADR-032 documents the chart choices and
 the relabeling bug. September's original plan (Rancher, ArgoCD,
 observability with Loki) is now fully closed, including the Loki piece
 that was originally scoped for later.
+
+=== Real TLS certs: cert-manager + Let's Encrypt via Cloudflare DNS-01 — 22:06 23-07-2026 ===
+New phase: replacing self-signed certs with real ones, now that I own
+entraid-study.uk on Cloudflare. Installed cert-manager (chart v1.21.0,
+jetstack repo) as unconditional cluster infra — same tier as Calico/
+MetalLB, not gated behind the app-choice prompt, since it's small and
+everything will eventually depend on it for TLS.
+
+Hit a values-schema error on the first install attempt:
+`--set controller.resources...` failed with "additional properties
+'controller' not allowed". Checked the actual chart values.yaml on
+GitHub — turns out the main controller's resources live at the
+document root (`resources:`), not nested under a `controller:` key;
+only webhook/cainjector/startupapicheck get their own top-level keys.
+Fixed and reinstalled cleanly, 3/3 pods running.
+
+Renumbered the pipeline to make room: cert-manager is now
+04_cert_manager.sh, and Rancher/ArgoCD/Observability shifted to
+05/06/07. Decided to leave old script names alone in decisions.md and
+lab-journal.txt (they're historical record, accurate to what the
+script was called at the time) and only update the live reference doc
+(manual-bootstrap.md) and the scripts' own header comments.
+
+For the Cloudflare token, went with a different pattern than the
+Grafana/Rancher/ArgoCD admin passwords: instead of prompting
+interactively at every install, it's read from secrets/cloudflare-api-token,
+a gitignored local file. Makes sense once you think about it — the
+token doesn't change per rebuild like a fresh admin password does, so
+retyping it every `rebuild --force` would just be friction.
+
+Set up a DNS-01 ClusterIssuer (Cloudflare solver, selector scoped to
+the entraid-study.uk zone), pointed straight at Let's Encrypt's
+production ACME server rather than staging first — accepted the small
+rate-limit risk given it's a single domain. First named it
+letsencrypt-prod out of habit, then caught myself: this isn't actually
+a production environment, so renamed everything to letsencrypt-k8slab
+instead. The ACME server itself still points at Let's Encrypt's real
+production endpoint — that part didn't change, just the resource
+naming.
+
+Talked through HTTP-01 vs DNS-01, and confirmed HTTP-01 was never
+viable here anyway — the lab isn't publicly reachable (SSH tunnel
+access, ADR-029), so Let's Encrypt could never complete that
+challenge. DNS-01 only needs outbound access to Cloudflare's API,
+which fits.
+
+Originally planned to wire a real Certificate straight into Grafana's
+Gateway, but stopped to think it through first: adding a real hostname
+to the Gateway listener means Envoy routes by SNI, and the SSH tunnel
+sends SNI "localhost", not the real hostname — would've broken the
+existing access pattern without also editing the Windows hosts file.
+Decided that's out of scope for what I actually wanted right now
+(proving cert-manager can manage a real certificate), so validated the
+whole flow with a standalone test Certificate (test.entraid-study.uk)
+instead, sitting in the cert-manager namespace, not wired into
+anything. Challenge went valid in under 2 minutes. Checked the actual
+cert with openssl afterward: issuer is really Let's Encrypt (CN=YR2),
+subject test.entraid-study.uk, 90-day validity. Real cert, real CA,
+zero manual intervention beyond the token.
+
+Status: cert-manager + ClusterIssuer fully working and documented
+(ADR-033). Grafana (and Rancher/ArgoCD whenever reinstalled) still run
+on their own self-signed certs for now — wiring real per-app certs
+into the Gateways, with the SNI/hosts-file implications, is deferred
+until it's worth making that trade-off for a specific app.

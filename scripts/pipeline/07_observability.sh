@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================================================
-# 06_observability.sh — Install the full observability stack via Helm from
+# 07_observability.sh — Install the full observability stack via Helm from
 # Artifact Hub (ADR-030): kube-prometheus-stack for metrics (ADR-031), Loki
 # + Grafana Alloy for logs (ADR-032).
 # ----------------------------------------------------------------------------
-# Same pattern as 04_rancher.sh / 05_argocd.sh: dedicated Gateway (no
+# Same pattern as 05_rancher.sh / 06_argocd.sh: dedicated Gateway (no
 # hostname restriction), self-signed TLS at the Gateway, admin password
 # prompted at install time, tunnel script for Windows access.
 # ============================================================================

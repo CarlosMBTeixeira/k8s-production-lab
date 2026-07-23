@@ -23,3 +23,5 @@ Thumbs.db
 github_token.txt
 cloud-init/.rendered/
 kubernetes/admin.conf
+# Local secrets — never commit
+secrets/

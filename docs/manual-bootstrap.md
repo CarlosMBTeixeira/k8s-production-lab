@@ -894,7 +894,7 @@ See ADR-022.
 
 ## Phase G — Install Rancher and access it from Windows
 
-Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`.
+Mirrors `scripts/pipeline/05_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`.
 See ADR-026 (dedicated Gateway), ADR-027 (cert-manager dependency),
 ADR-028 (replica count), ADR-029 (SSH tunnel access, no SNI).
 
@@ -979,7 +979,7 @@ expected). Log in with the `bootstrapPassword` set at install time.
 
 ## Phase G — Install Rancher and access it from Windows
 
-Mirrors `scripts/pipeline/04_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`
+Mirrors `scripts/pipeline/05_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`
 (both also sourced by `scripts/pipeline/main.sh` as of this phase, so a
 full `main.sh` rebuild includes Rancher automatically). See ADR-026
 (dedicated Gateway), ADR-027 (cert-manager dependency), ADR-028

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# 05_argocd.sh — Install ArgoCD via the argo-helm chart (Artifact Hub),
+# 06_argocd.sh — Install ArgoCD via the argo-helm chart (Artifact Hub),
 # exposed via a dedicated Gateway API resource, same pattern as Rancher
 # (ADR-026, ADR-029, ADR-030).
 # ----------------------------------------------------------------------------
