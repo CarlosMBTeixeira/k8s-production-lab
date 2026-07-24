@@ -20,7 +20,8 @@ for the CKA certification and as a demonstrable portfolio project for DevOps wor
   (Rancher, ArgoCD, or the observability stack) at a time until more RAM
   is added later this year (ADR-031) — `main.sh` prompts for which one
   to install each run
-- **Planned:** External Secrets + Pod Security (security layer)
+- **Deferred to CKS study:** External Secrets Operator, Pod Security
+  Standards, and RBAC -- deliberately out of scope for this v1 (see Roadmap)
 
 ## Architecture
 
@@ -85,16 +86,20 @@ Kubernetes manifests deployed through ArgoCD live in a separate repo,
 from this repo on purpose (infra-as-code vs. desired state), matching the
 author's day-job GitOps setup.
 
-## Roadmap (8 months)
+## Roadmap
 
 | Month | Focus |
 |---|---|
 | June 2026 | Provisioning automation (Multipass + Ansible) |
-| July 2026 | kubeadm HA cluster + **CKA exam** + Rancher + ArgoCD + observability stack (moved up from September) |
-| August 2026 | Vacation |
-| September 2026 | Loki (logs) + more RAM for the host, revisit running Rancher/ArgoCD/observability together |
-| October 2026 | Security layer + portfolio close |
-| November 2026 | Terraform AI agent (separate project) |
+| July 2026 | kubeadm HA cluster + **CKA exam** + Rancher + ArgoCD + observability stack + Loki + cert-manager + Network Policies |
+
+Originally scoped as an 8-month build (June-October 2026, with a security
+layer closing it out in October). Closed instead in July -- cert-manager,
+Network Policies, and the full observability stack (Prometheus, Grafana,
+Alertmanager, Loki, Alloy) all landed the same month as Rancher and
+ArgoCD, months ahead of schedule. External Secrets, Pod Security
+Standards, and RBAC were deliberately left out of this v1 -- better
+suited to dedicated CKS study than added here just to fill a checklist.
 
 ## Status
 - [x] Day 1: WSL2 + Multipass + KVM foundation validated
