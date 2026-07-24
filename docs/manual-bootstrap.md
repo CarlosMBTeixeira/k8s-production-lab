@@ -888,6 +888,135 @@ copy the real file from cp-1 (Phase D2, Step D2.1), then force a
 restart: `kubectl delete pod -n kube-system kube-vip-controlplane-2`.
 See ADR-022.
 
+## Phase F2 — Install cert-manager + ClusterIssuer
+
+Mirrors `scripts/pipeline/04_cert_manager.sh`. Unlike Rancher/ArgoCD/
+Observability below, this phase is unconditional cluster infra -- it
+always runs, regardless of which application (if any) gets installed
+afterward. See ADR-033.
+
+### Step F2.1 — Install cert-manager via Helm
+
+```bash
+helm repo add jetstack https://charts.jetstack.io --force-update
+helm repo update jetstack
+
+helm upgrade --install cert-manager jetstack/cert-manager \
+    --namespace cert-manager \
+    --create-namespace \
+    --version v1.21.0 \
+    --set crds.enabled=true \
+    --set resources.requests.cpu=10m \
+    --set resources.requests.memory=32Mi \
+    --set resources.limits.memory=64Mi \
+    --set webhook.resources.requests.cpu=10m \
+    --set webhook.resources.requests.memory=32Mi \
+    --set webhook.resources.limits.memory=64Mi \
+    --set cainjector.resources.requests.cpu=10m \
+    --set cainjector.resources.requests.memory=32Mi \
+    --set cainjector.resources.limits.memory=128Mi \
+    --timeout 300s \
+    --wait
+```
+
+Note the chart's resource keys: the main controller's resources sit at
+the values root (`resources:`), not under a `controller:` key --
+`--set controller.resources...` fails the chart's values schema. Only
+`webhook` and `cainjector` get their own top-level keys.
+
+### Step F2.2 — Cloudflare API token
+
+Create a scoped Cloudflare API token (My Profile → API Tokens →
+Create Custom Token): `Zone → DNS → Edit` and `Zone → Zone → Read`,
+restricted to the specific zone (`entraid-study.uk` in this lab).
+Save it to a gitignored local file rather than committing it or
+re-typing it on every rebuild:
+
+```bash
+mkdir -p secrets && chmod 700 secrets
+read -r -s -p "Cloudflare API token: " CF_TOKEN && printf '%s' "$CF_TOKEN" > secrets/cloudflare-api-token && unset CF_TOKEN
+chmod 600 secrets/cloudflare-api-token
+```
+
+Then create the Kubernetes Secret cert-manager reads from:
+
+```bash
+kubectl create secret generic cloudflare-api-token-secret \
+    -n cert-manager \
+    --from-literal=api-token="$(cat secrets/cloudflare-api-token)" \
+    --dry-run=client -o yaml | kubectl apply -f -
+```
+
+### Step F2.3 — ClusterIssuer (DNS-01 via Cloudflare)
+
+HTTP-01 isn't viable for this lab -- it isn't publicly reachable
+(ADR-029), so Let's Encrypt's servers could never complete that
+challenge. DNS-01 only needs outbound access to Cloudflare's API,
+which the lab already has.
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-k8slab
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: cmbt1984@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-k8slab-account-key
+    solvers:
+      - selector:
+          dnsZones:
+            - "entraid-study.uk"
+        dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token
+EOF
+```
+
+Named for the lab, not `letsencrypt-prod` -- this isn't a production
+environment, and the resource name shouldn't imply otherwise. The ACME
+*server* it talks to is still Let's Encrypt's real production
+endpoint.
+
+### Verify Phase F2
+
+```bash
+kubectl get pods -n cert-manager
+kubectl wait --for=condition=Ready clusterissuer/letsencrypt-k8slab --timeout=60s
+kubectl get clusterissuer letsencrypt-k8slab
+```
+
+All 3 cert-manager pods `1/1 Running`, ClusterIssuer shows `READY=True`.
+Optionally, prove it end-to-end with a throwaway Certificate before
+trusting it for anything real:
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-entraid-study-uk
+  namespace: cert-manager
+spec:
+  secretName: test-entraid-study-uk-tls
+  dnsNames:
+    - test.entraid-study.uk
+  issuerRef:
+    name: letsencrypt-k8slab
+    kind: ClusterIssuer
+EOF
+
+kubectl get secret test-entraid-study-uk-tls -n cert-manager -o jsonpath='{.data.tls\.crt}' \
+  | base64 -d | openssl x509 -noout -subject -issuer -dates
+```
+
+Expect `issuer=C=US, O=Let's Encrypt, CN=...` and `subject=CN=test.entraid-study.uk`.
+
 ## Phase G — Install Rancher and access it from Windows
 
 Mirrors `scripts/pipeline/05_rancher.sh` + `scripts/tunnels/rancher-tunnel.sh`
@@ -974,3 +1103,313 @@ expected). Log in with the `bootstrapPassword` set at install time.
 - Rancher UI shows cluster `local` as `Active` — this cluster
   auto-registers itself since Rancher runs on top of it directly
   (chart default `addLocal: true`), no separate import step needed.
+
+## Phase H — Install ArgoCD and access it from Windows
+
+Mirrors `scripts/pipeline/06_argocd.sh`. An alternative to Phase G, not
+a follow-on step -- the RAM budget only fits one of Rancher/ArgoCD/
+Observability at a time (ADR-031), so `main.sh` prompts for exactly
+one. Same overall pattern as Rancher: Helm install, self-signed TLS,
+dedicated Gateway API resource, no hostname (ADR-029). Chart sourced
+from Artifact Hub (ADR-030).
+
+### Step H.1 — Admin password (bcrypt hash, never written to git)
+
+ArgoCD's chart takes the admin password as a pre-hashed bcrypt value,
+not plaintext, and — unlike a plain `--set` — needs to go through a
+temp values file to avoid shell-escaping issues with the hash's `$`
+characters:
+
+```bash
+if ! command -v htpasswd >/dev/null 2>&1; then
+    sudo apt-get update -qq && sudo apt-get install -y apache2-utils
+fi
+
+read -r -s -p "ArgoCD admin password (min 8 chars): " ARGOCD_PASSWORD
+echo
+HASH="$(htpasswd -nbBC 10 "" "${ARGOCD_PASSWORD}" | tr -d ':\n' | sed 's/\$2y/\$2a/')"
+
+PASSWORD_VALUES_FILE="$(mktemp)"
+cat > "${PASSWORD_VALUES_FILE}" << YAMLEOF
+configs:
+  secret:
+    argocdServerAdminPassword: "${HASH}"
+    argocdServerAdminPasswordMtime: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+YAMLEOF
+```
+
+Only reliable on a **fresh install** — argo-helm has a known issue
+(#1407) where an in-place `helm upgrade` on an existing release can
+silently ignore password changes. Fine here since the lab is destroyed
+and rebuilt every session anyway.
+
+### Step H.2 — Install ArgoCD via Helm
+
+```bash
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+
+helm upgrade --install argocd argo/argo-cd \
+    --version 10.1.4 \
+    --namespace argocd --create-namespace \
+    -f kubernetes/manifests/argocd/values.yaml \
+    -f "${PASSWORD_VALUES_FILE}"
+
+rm -f "${PASSWORD_VALUES_FILE}"
+kubectl wait --for=condition=Available --timeout=300s -n argocd deployment/argocd-server
+```
+
+`kubernetes/manifests/argocd/values.yaml` sets `server.insecure=true`
+— TLS terminates at the Gateway, the ArgoCD server itself serves plain
+HTTP behind it, same principle as Rancher's `ingress.tls.source=secret`
+(ADR-027).
+
+### Step H.3 — Self-signed TLS + Gateway + HTTPRoute
+
+```bash
+TMPDIR=$(mktemp -d)
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+    -keyout "${TMPDIR}/tls.key" -out "${TMPDIR}/tls.crt" \
+    -subj "/CN=argocd.lab" -addext "subjectAltName=DNS:argocd.lab"
+kubectl create secret tls argocd-tls -n argocd \
+    --cert="${TMPDIR}/tls.crt" --key="${TMPDIR}/tls.key" \
+    --dry-run=client -o yaml | kubectl apply -f -
+rm -rf "${TMPDIR}"
+
+kubectl apply -f kubernetes/manifests/argocd/gateway-argocd.yaml
+kubectl apply -f kubernetes/manifests/argocd/httproute-argocd.yaml
+```
+
+No `hostname` field on either resource, same reasoning as Rancher
+(ADR-029) — access is via `localhost` through the tunnel, and fixed
+SNI matching would only add friction for zero benefit with a single
+backend.
+
+### Verify Phase H
+
+```bash
+kubectl get pods -n argocd
+kubectl get gateway,httproute -n argocd
+```
+
+Access: `./scripts/tunnels/argocd-tunnel.sh`, then
+`https://localhost:8444/`. Username `admin`, password the one typed
+in Step H.1. Accept the self-signed/hostname-mismatch browser warnings
+(expected, same as Rancher).
+
+## Phase I — Install Observability (kube-prometheus-stack + Loki + Alloy)
+
+Mirrors `scripts/pipeline/07_observability.sh`. Third alternative to
+Phases G/H — same RAM-budget reasoning (ADR-031). Bundles metrics
+(ADR-031) and logs (ADR-032) into one phase since the script installs
+both, but they're genuinely two Helm releases layered on the same
+namespace and Gateway.
+
+### Step I.1 — Namespace, self-signed TLS, Gateway + HTTPRoute
+
+```bash
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+TMPDIR=$(mktemp -d)
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "${TMPDIR}/tls.key" -out "${TMPDIR}/tls.crt" \
+    -subj "/CN=grafana.lab"
+kubectl create secret tls grafana-tls -n monitoring \
+    --cert="${TMPDIR}/tls.crt" --key="${TMPDIR}/tls.key"
+rm -rf "${TMPDIR}"
+
+kubectl apply -f kubernetes/manifests/observability/gateway-observability.yaml
+kubectl apply -f kubernetes/manifests/observability/httproute-observability.yaml
+kubectl wait --for=jsonpath='{.status.addresses[0].value}' \
+    gateway/grafana -n monitoring --timeout=120s
+```
+
+### Step I.2 — Add Helm repos
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana-community https://grafana-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update prometheus-community grafana-community grafana
+```
+
+Note the repo split: `grafana-community/helm-charts` for Loki (the
+chart moved there 2026-03-16 — the old `grafana/helm-charts` location
+is stale), `grafana/helm-charts` for Alloy.
+
+### Step I.3 — Grafana admin password + install kube-prometheus-stack
+
+```bash
+if ! command -v htpasswd >/dev/null 2>&1; then
+    sudo apt-get install -y apache2-utils
+fi
+read -r -s -p "Grafana admin password: " GRAFANA_PASSWORD
+echo
+PASSWORD_VALUES_FILE=$(mktemp)
+cat > "${PASSWORD_VALUES_FILE}" << YAMLEOF
+grafana:
+  adminPassword: "${GRAFANA_PASSWORD}"
+YAMLEOF
+
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+    --version 87.17.0 \
+    -n monitoring \
+    -f kubernetes/manifests/observability/values.yaml \
+    -f "${PASSWORD_VALUES_FILE}" \
+    --timeout 600s \
+    --wait
+
+rm -f "${PASSWORD_VALUES_FILE}"
+```
+
+`kubernetes/manifests/observability/values.yaml` (see ADR-031, ADR-032):
+Prometheus/Alertmanager/Grafana resources trimmed well below chart
+defaults, 24h retention, ephemeral storage (no StorageClass in this
+lab), `kubeControllerManager`/`kubeScheduler`/`kubeEtcd`/`kubeProxy`
+ServiceMonitors disabled (kubeadm binds these to 127.0.0.1 by default,
+so their default ServiceMonitors would just fail to scrape), and a
+Grafana `additionalDataSources` entry pointing at Loki
+(`http://loki.monitoring.svc.cluster.local:3100`) — added once Loki
+existed, wiring one Grafana instance to serve both metrics and logs.
+
+### Step I.4 — Install Loki
+
+```bash
+helm upgrade --install loki grafana-community/loki \
+    --version 18.4.4 \
+    -n monitoring \
+    -f kubernetes/manifests/observability/loki-values.yaml \
+    --timeout 300s \
+    --wait
+```
+
+`loki-values.yaml`: `SingleBinary` deployment mode, filesystem storage,
+`auth_enabled: false`, read/write/backend/gateway/caches all disabled
+— matches the same minimal-footprint shape as Prometheus/Alertmanager.
+
+### Step I.5 — Install Grafana Alloy
+
+```bash
+helm upgrade --install alloy grafana/alloy \
+    --version 1.10.0 \
+    -n monitoring \
+    -f kubernetes/manifests/observability/alloy-values.yaml \
+    --timeout 300s \
+    --wait
+```
+
+`alloy-values.yaml` replaces Promtail (EOL 2026-03-02) as the log
+shipper, collecting pod logs via the Kubernetes API
+(`discovery.kubernetes` + `loki.source.kubernetes`) rather than a
+hostPath `/var/log` mount — no privileged DaemonSet needed. Two things
+worth knowing if reproducing this by hand:
+
+- `controller.tolerations` for
+  `node-role.kubernetes.io/control-plane:NoSchedule` is required, or
+  the DaemonSet only schedules on worker nodes (2 of 4, not 4 of 4).
+- `loki.source.kubernetes` does **not** promote `namespace`/`pod`/
+  `container` to real Loki labels by default — it only uses those
+  meta-labels internally to know what to tail, so the resulting
+  streams carry just `instance`/`job` labels and a query like
+  `{namespace="monitoring"}` matches nothing even though logs are
+  being ingested. Fix: an explicit `discovery.relabel` component
+  between `discovery.kubernetes` and `loki.source.kubernetes`, mapping
+  `__meta_kubernetes_namespace`/`__meta_kubernetes_pod_name`/
+  `__meta_kubernetes_pod_container_name` to `namespace`/`pod`/
+  `container` labels (already in the repo-tracked `alloy-values.yaml`).
+
+### Verify Phase I
+
+```bash
+kubectl get pods -n monitoring
+```
+
+All pods `Running` (Prometheus, Alertmanager, Grafana, kube-state-metrics,
+the Operator, node-exporter DaemonSet, Loki, Alloy DaemonSet on all 4
+nodes). Access: `./scripts/tunnels/grafana-tunnel.sh`, then
+`https://localhost:8445/`, username `admin`. In Grafana, Explore →
+Loki datasource → `{namespace="monitoring"}` should return real log
+lines.
+
+## Phase J — Apply Network Policies for the monitoring namespace
+
+Mirrors `scripts/pipeline/08_network_policies.sh`. Requires Phase I
+already installed — the `monitoring` namespace must exist. Standard
+Kubernetes `NetworkPolicy` (portable, CKA-relevant), enforced natively
+by Calico (ADR-016), not Calico's own richer `GlobalNetworkPolicy`
+CRDs. See ADR-034.
+
+### Step J.1 — Map real traffic before writing anything
+
+Don't guess at what a default-deny namespace needs — confirm it
+against the live cluster first:
+
+```bash
+kubectl get pods -n monitoring -o wide
+kubectl get svc -n monitoring -o wide
+kubectl get pod -n monitoring -l app.kubernetes.io/name=grafana \
+    -o jsonpath='{.items[0].spec.containers[*].ports}'
+```
+
+This is how the two real port mismatches were caught: Grafana's
+Service exposes port 80 but the container listens on 3000, and the
+Prometheus Operator's Service exposes 443 but the webhook container
+is actually on 10250. `NetworkPolicy` `ports` match the pod's real
+listening port, not the Service port.
+
+### Step J.2 — Apply the policy set
+
+```bash
+kubectl apply -f kubernetes/manifests/network_policies/monitoring.yaml
+kubectl get networkpolicy -n monitoring
+```
+
+13 policies: one `default-deny-all` (Ingress + Egress, empty
+`podSelector`) plus 12 explicit allows covering DNS, apiserver access
+for the components that watch/list cluster resources, Envoy Gateway →
+Grafana ingress, Grafana's three datasource queries, Alloy → Loki, and
+everything Prometheus itself scrapes.
+
+### Step J.3 — Validate against real signal, not just pod status
+
+A blocked scrape doesn't crash a pod — it just goes quietly red. Check
+Prometheus's own `/targets` page instead of trusting `kubectl get pods`:
+
+```bash
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+```
+
+Open `http://localhost:9090/targets`. Every ServiceMonitor should read
+`up`. If CoreDNS shows `0/2 up` with `context deadline exceeded`, it's
+a missing egress rule — Prometheus scrapes CoreDNS directly on port
+9153, easy to miss on a first pass.
+
+### Two things worth knowing before reproducing this
+
+**`prometheus-node-exporter` runs `hostNetwork: true`.** Its pod IP is
+the node's real IP, not a pod-CIDR address. NetworkPolicy enforcement
+against hostNetwork pod destinations worked correctly here (confirmed
+against `/targets`), but treat that as verified-for-this-cluster
+rather than a guaranteed behavior across every CNI.
+
+**Kubelet's own metrics endpoint (port 10250, hit directly on each
+node's real IP) stays reachable regardless of any policy written
+here — and that's expected, not a leak.** Standard Kubernetes
+`NetworkPolicy` only governs pod-to-pod and pod-to-ClusterIP traffic.
+Kubelet is a host process, not a Pod object, so Calico can't apply
+workload policy against it without a separate mechanism (`HostEndpoint`
++ `GlobalNetworkPolicy`, Calico-specific, out of scope here). This
+matches documented Kubernetes hardening guidance (CIS Benchmark,
+NSA/CISA) — kubelet API exposure needs its own authn/authz or
+host-level firewalling, standard `NetworkPolicy` alone doesn't close it.
+
+### Verify Phase J
+
+```bash
+kubectl get networkpolicy -n monitoring
+```
+
+13 policies present. Grafana still reachable through the tunnel;
+Prometheus `/targets` all `up`.
