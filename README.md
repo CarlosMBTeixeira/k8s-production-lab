@@ -102,24 +102,24 @@ Standards, and RBAC were deliberately left out of this v1 -- better
 suited to dedicated CKS study than added here just to fill a checklist.
 
 ## Status
-- [x] Day 1: WSL2 + Multipass + KVM foundation validated
-- [x] June Week 1: 4 VMs provisioned with Ansible-ready setup
-- [x] June Week 2: Ansible essentials and node prerequisites
-- [x] June Week 3: containerd installed and configured
-- [x] June Week 4: kubeadm/kubelet/kubectl ready for cluster bootstrap
-- [x] July Week 1: kubeadm HA control plane bootstrapped and validated (kube-vip VIP, 2 control planes + 2 workers, Calico CNI)
-- [x] July Week 1 (extra): Gateway API + MetalLB smoke test, replacing nginx+NodePort (ingress-nginx EOL 2026-03-31)
-- [x] July Weeks 2-4: CKA exam preparation completed, exam passed
-- [x] July Week 5: cluster rebuilt from scratch on Kubernetes 1.35 (ADR-025)
-- [x] July Week 5: Rancher installed via Helm (rancher-stable), exposed through a dedicated Gateway API resource (ADR-026–028)
-- [x] July Week 5: Windows access to lab UIs — SSH tunnel (default) and direct IP access (ADR-029)
-- [x] July Week 5: Helm charts from Artifact Hub established as the standard for all application installs (ADR-030); ArgoCD is the first application under this policy
-- [x] July Week 5: WSL2/Multipass networking fully automated — Docker DOCKER-USER chain, Multipass inbound-connection rule, and the Windows-side route are all scripted and idempotent (ADR-029 resolved)
-- [x] July Week 5: ArgoCD GitOps mechanics learned end-to-end — separate manifests repo, first Application, manual sync, auto-sync + self-heal (verified via live drift test), rollback via `git revert`
-- [x] July Week 5: kube-prometheus-stack (Prometheus + Grafana + Alertmanager) installed via Helm, sized to the lab's RAM budget (ADR-031); `main.sh` now prompts for exactly one application per install run, since Rancher + ArgoCD + observability don't comfortably coexist yet
-- [x] July Week 5: Loki + Grafana Alloy installed for log aggregation, wired into the existing Grafana via `additionalDataSources` (ADR-032); replaces Promtail, which reached EOL 2026-03-02
-- [x] July Week 5 (extra): cert-manager installed as unconditional cluster infra, with a `letsencrypt-k8slab` ClusterIssuer for Let's Encrypt via Cloudflare DNS-01 (ADR-033); validated end-to-end with a real issued certificate
-- [x] July Week 5 (extra): Network Policies applied to the monitoring namespace (default-deny + 12 explicit allows, ADR-034); validated against Prometheus's own /targets page, not just pod status
+- [x] WSL2 + Multipass + KVM foundation validated
+- [x] 4 VMs provisioned with Ansible-ready setup
+- [x] Ansible essentials and node prerequisites
+- [x] containerd installed and configured
+- [x] kubeadm/kubelet/kubectl ready for cluster bootstrap
+- [x] kubeadm HA control plane bootstrapped and validated (kube-vip VIP, 2 control planes + 2 workers, Calico CNI)
+- [x] Gateway API + MetalLB smoke test, replacing nginx+NodePort (ingress-nginx EOL 2026-03-31)
+- [x] CKA exam preparation completed, exam passed
+- [x] Cluster rebuilt from scratch on Kubernetes 1.35 (ADR-025)
+- [x] Rancher installed via Helm (rancher-stable), exposed through a dedicated Gateway API resource (ADR-026–028)
+- [x] Windows access to lab UIs — SSH tunnel (default) and direct IP access (ADR-029)
+- [x] Helm charts from Artifact Hub established as the standard for all application installs (ADR-030); ArgoCD is the first application under this policy
+- [x] WSL2/Multipass networking fully automated — Docker DOCKER-USER chain, Multipass inbound-connection rule, and the Windows-side route are all scripted and idempotent (ADR-029 resolved)
+- [x] ArgoCD GitOps mechanics learned end-to-end — separate manifests repo, first Application, manual sync, auto-sync + self-heal (verified via live drift test), rollback via `git revert`
+- [x] kube-prometheus-stack (Prometheus + Grafana + Alertmanager) installed via Helm, sized to the lab's RAM budget (ADR-031); `main.sh` prompts for exactly one application per install run, since Rancher + ArgoCD + observability don't comfortably coexist yet
+- [x] Loki + Grafana Alloy installed for log aggregation, wired into the existing Grafana via `additionalDataSources` (ADR-032); replaces Promtail, which reached EOL 2026-03-02
+- [x] cert-manager installed as unconditional cluster infra, with a `letsencrypt-k8slab` ClusterIssuer for Let's Encrypt via Cloudflare DNS-01 (ADR-033); validated end-to-end with a real issued certificate
+- [x] Network Policies applied to the monitoring namespace (default-deny + 12 explicit allows, ADR-034); validated against Prometheus's own /targets page, not just pod status
 
 ## Known issues
 - VM guest clocks can silently drift under host CPU pressure even while
