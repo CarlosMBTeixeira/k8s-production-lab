@@ -3,6 +3,17 @@
 End-to-end Kubernetes lab built from scratch on local hardware, as preparation
 for the CKA certification and as a demonstrable portfolio project for DevOps work.
 
+Not a follow-along tutorial -- highlights that came from solving real
+problems along the way:
+- Real TLS certificates via Let's Encrypt + Cloudflare DNS-01 (cert-manager),
+  not self-signed
+- Network Policies validated against live traffic on Prometheus's own
+  /targets page, not just "kubectl apply and hope"
+- GitOps via ArgoCD with auto-sync, self-heal, and a rollback path
+  actually tested against live drift
+- 34 architecture decisions documented as ADRs -- context, rejected
+  alternatives, and trade-offs, not just what was installed
+
 ## Stack
 - **Host:** HP OMEN 16-ap0xxx (Ryzen 9 8940HX, 24 GB RAM, Windows 11 Home)
 - **Virtualization:** WSL2 (Ubuntu 24.04) with nested KVM → Multipass VMs
@@ -15,7 +26,7 @@ for the CKA certification and as a demonstrable portfolio project for DevOps wor
   (Prometheus + Grafana + Alertmanager, ADR-031), Loki + Grafana Alloy
   (log aggregation, ADR-032), cert-manager (real TLS via Let's Encrypt +
   Cloudflare DNS-01, ADR-033)
-- **Tooling:** Ansible (provisioning), Helm, ArgoCD, Rancher, Prometheus/Grafana/Loki, cert-manager
+- **Tooling:** Ansible (provisioning), Helm
 - **RAM constraint:** the host only comfortably runs one application
   (Rancher, ArgoCD, or the observability stack) at a time until more RAM
   is added later this year (ADR-031) — `main.sh` prompts for which one
