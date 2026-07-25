@@ -1,17 +1,21 @@
+# App-of-Apps root. This is the only Application ever kubectl-applied by
+# hand — every other Application (starting with hello-world) is defined
+# in k8s-gitops under apps/root/ and reaches the cluster via this
+# Application's own sync, never a direct kubectl apply.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: hello-world
+  name: root
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/CarlosMBTeixeira/k8s-gitops.git
     targetRevision: main
-    path: apps/hello-world
+    path: apps/root
   destination:
     server: https://kubernetes.default.svc
-    namespace: hello-world
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true
