@@ -30,6 +30,7 @@ The one file this affects mechanically:
 | [05-operating-argocd.md](05-operating-argocd.md) | 5 | Notifications, monitoring ArgoCD itself, HA reasoning, disaster recovery |
 | [06-multicluster-as-code.md](06-multicluster-as-code.md) | 6 | Second cluster, ApplicationSet cluster generator, ArgoCD-as-code |
 | [07-capstone.md](07-capstone.md) | — | Bring it all together on one small fleet |
+| [youtube_course.md](youtube_course.md) | — | Companion video course, watched alongside these tiers |
 
 **Tier 0 isn't a file** — it's what you'd already done before this
 path started: Helm install via Artifact Hub, Gateway API exposure,
