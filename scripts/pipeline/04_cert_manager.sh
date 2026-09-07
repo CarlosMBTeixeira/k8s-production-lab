@@ -11,8 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CHART_VERSION="v1.21.0"
 NAMESPACE="cert-manager"
-DOMAIN="entraid-study.uk"
-ACME_EMAIL="cmbt1984@gmail.com"
+export DOMAIN="entraid-study.uk"
+export ACME_EMAIL="cmbt1984@gmail.com"
 TOKEN_FILE="${REPO_ROOT}/secrets/cloudflare-api-token"
 CLUSTER_ISSUER="${REPO_ROOT}/kubernetes/manifests/cert_manager/clusterissuer.yaml"
 
@@ -79,7 +79,7 @@ create_cloudflare_secret() {
 
 apply_cluster_issuer() {
     section "Applying ClusterIssuer letsencrypt-k8slab"
-    kubectl apply -f "${CLUSTER_ISSUER}"
+    envsubst < "${CLUSTER_ISSUER}" | kubectl apply -f -
 }
 
 verify() {
