@@ -24,10 +24,12 @@ ERRORS=0
 check() {
     local name="$1"
     local cmd="$2"
+    local hint="${3:-}"
     if eval "$cmd" >/dev/null 2>&1; then
         echo "  ✅ $name"
     else
         echo "  ❌ $name"
+        [ -n "$hint" ] && echo "     → $hint"
         ERRORS=$((ERRORS+1))
     fi
 }
@@ -96,7 +98,8 @@ echo "Repo:"
 info  "git status clean"                "cd ~/k8slab && [ -z \"\$(git status --porcelain)\" ]"
 # Being out of sync with origin IS a check: it usually means the operator
 # forgot to push or pull, and continuing risks divergent history.
-check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]"
+check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]" \
+      "run 'git push' or 'git pull' to resync (check 'git status -sb' for ahead/behind)"
 echo ""
 
 echo "|---------------------------------------------------------------------------"
