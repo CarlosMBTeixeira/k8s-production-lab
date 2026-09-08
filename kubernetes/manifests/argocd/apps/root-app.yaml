@@ -1,0 +1,27 @@
+# App-of-Apps root. This is the only Application ever kubectl-applied by
+# hand — every other Application (starting with hello-world) is defined
+# in k8s-gitops under apps/root/ and reaches the cluster via this
+# Application's own sync, never a direct kubectl apply.
+#
+# targetRevision is pinned to feature/argocd, not main, on purpose: this
+# whole ArgoCD learning path lives permanently on that branch in both
+# repos and is never merged to main, so main stays the clean,
+# recruiter-facing state of the lab. See docs/argocd-learning-path/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CarlosMBTeixeira/k8s-gitops.git
+    targetRevision: feature/argocd
+    path: apps/root
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
