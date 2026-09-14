@@ -25,4 +25,5 @@ cloud-init/.rendered/
 kubernetes/admin.conf
 # Local secrets — never commit
 secrets/
-argo_cd_setup_script.sh
+argocd_setup_script.sh
+transfer_argocd_script.sh
