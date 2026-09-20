@@ -6,7 +6,7 @@
 # Source is THIS repository on feature/argo-and-observability-study:
 # desired state (gitops/) lives beside infra-as-code (scripts/, ansible/)
 # for this study block, so there is one folder and one clone. See
-# workbook/README.md for why, and gitops/README.md for the layout.
+# observability_workbook/README.md for why, and gitops/README.md for the layout.
 #
 # The separate k8s-gitops repo referenced by docs/argocd-learning-path/
 # was never used and is out of scope here.
