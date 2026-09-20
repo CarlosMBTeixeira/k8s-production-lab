@@ -122,7 +122,7 @@ be `Pending` or `OOMKilled`. If something is, that is session zero, and
 ├── scripts/              infra-as-code — provisioning pipeline
 ├── kubernetes/           Helm values, the root Application
 ├── docs/decisions.md     ADR-001…035
-├── workbook/             this path, its sessions and runbooks
+├── observability_workbook/   this path, its sessions and runbooks
 └── gitops/               desired state — what ArgoCD syncs
 ~/openshift-local-lab/…   CRC, for session 6 only
 ```
