@@ -22,16 +22,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-# Workers to join. If the lab grows, add their SSH aliases here.
-# One worker only since ADR-035 (worker-2 removed, its RAM folded into
-# worker-1 so ArgoCD and the observability stack fit on one node).
-WORKERS=(w-1)
-
-# Worker -> kubectl node name mapping (so we can 'kubectl wait' on the
-# right object after each join). Multipass names diverge from SSH aliases.
-declare -A WORKER_NODE_NAME=(
-    [w-1]=worker-1
-)
+# Workers to join come from the resolved topology (ADR-036), so this never
+# tries to join a worker that was not built.
+source "${SCRIPT_DIR}/../lab-config.sh"
+read -r -a WORKERS <<< "$(lab_worker_aliases)"
 
 # ----------------------------------------------------------------------------
 # Pretty section header so the operator can follow along in long output.
@@ -91,14 +85,15 @@ generate_fresh_join_command() {
 
 # ----------------------------------------------------------------------------
 # Step 3: Join each worker and wait for it to reach Ready.
-# Sequential rather than parallel: easier to debug if one fails, and a
-# single worker makes parallel pointless anyway.
+# Sequential rather than parallel: easier to debug if one fails, and at
+# this scale (1-2 workers) parallel is not worth the complexity.
 # ----------------------------------------------------------------------------
 join_each_worker() {
     section "Step 3/4: Joining workers"
 
     for worker in "${WORKERS[@]}"; do
-        local node_name="${WORKER_NODE_NAME[${worker}]}"
+        # Multipass VM names diverge from SSH aliases (w-1 -> worker-1).
+        local node_name; node_name="$(lab_alias_to_vm "${worker}")"
 
         echo
         echo "  --- ${worker} (${node_name}) ---"

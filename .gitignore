@@ -27,3 +27,7 @@ kubernetes/admin.conf
 secrets/
 argocd_setup_script.sh
 transfer_argocd_script.sh
+
+# Resolved node topology, written by lab-management.sh (ADR-036).
+# Describes the running lab, not a repo-level setting.
+.lab-topology

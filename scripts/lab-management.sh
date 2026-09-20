@@ -3,7 +3,7 @@
 # lab-management.sh — Manage the Kubernetes lab lifecycle.
 # ----------------------------------------------------------------------------
 # Provides three operations on the lab VMs:
-#   - build    : create the 3 lab VMs (fails if any already exist)
+#   - build    : create the lab VMs (fails if any already exist)
 #   - destroy  : remove all lab VMs (requires confirmation)
 #   - rebuild  : destroy and then build (requires confirmation)
 #
@@ -25,27 +25,13 @@ set -euo pipefail
 # Configuration
 # ----------------------------------------------------------------------------
 
-# VMs to manage. Order matters: control plane first, workers after.
-# Two control planes + ONE worker since ADR-035 -- worker-2 was removed and
-# its RAM folded into worker-1 so the GitOps + observability study stack
-# fits in a single scheduling domain.
-VMS=(controlplane-1 controlplane-2 worker-1)
-
-# Per-VM resources, as "<cpus> <memory> <disk>". Any VM not listed here
-# falls back to launch-node.sh's own defaults (2 CPU, 4G RAM, 20G disk).
-#
-# worker-1 gets 8G -- the 4G that worker-2 used to hold (ADR-035). The
-# control planes carry kubeadm's default NoSchedule taint, so every
-# workload lands on the workers; ArgoCD and kube-prometheus-stack + Loki +
-# Alloy only coexist if that capacity sits in one schedulable node rather
-# than being split across two. Set this to "2 4G 20G" instead to hand the
-# 4G back to the WSL2 host, at the cost of not being able to run both
-# applications at once.
-declare -A VM_RESOURCES=(
-    ["worker-1"]="2 8G 20G"
-)
-
 SCRIPT_DIR="$(dirname "$0")"
+
+# Topology (how many workers, and how big) is a variable, not a branch
+# difference -- see scripts/lab-config.sh and ADR-036. VMS is filled in
+# after the topology is resolved, because it depends on it.
+source "${SCRIPT_DIR}/lab-config.sh"
+VMS=()
 LAUNCH_SCRIPT="${SCRIPT_DIR}/launch-node.sh"
 SYNC_SCRIPT="${SCRIPT_DIR}/sync-ssh-config.sh"
 CHECK_SCRIPT="${SCRIPT_DIR}/morning-check.sh"
@@ -109,6 +95,24 @@ confirm() {
 }
 
 # ----------------------------------------------------------------------------
+# resolve_topology — ask (or accept LAB_WORKERS), fill VMS, and persist the
+# answer so later shells (morning-check.sh, fix-vm-clocks.sh, the pipeline)
+# agree with what was actually built.
+#
+# --force skips the prompt and takes whatever lab-config resolves, which
+# keeps `rebuild --force` usable from automation.
+# ----------------------------------------------------------------------------
+resolve_topology() {
+    if [ "$FORCE" = "true" ] || [ -n "${LAB_WORKERS:-}" ]; then
+        echo "  Topology: $(lab_topology_line)  [from $(lab_topology_source)]"
+    else
+        lab_choose_topology
+    fi
+    read -r -a VMS <<< "$(lab_vm_names)"
+    lab_set_workers "$(lab_workers)"
+}
+
+# ----------------------------------------------------------------------------
 # Interactive menu
 # ----------------------------------------------------------------------------
 
@@ -144,9 +148,10 @@ show_menu() {
 # ----------------------------------------------------------------------------
 
 do_build() {
+    resolve_topology
     echo ""
     echo "|---------------------------------------------------------------------------"
-    echo "| Build — provisioning ${#VMS[@]} lab VMs"
+    echo "| Build — provisioning ${#VMS[@]} lab VMs: $(lab_topology_line)"
     echo "|---------------------------------------------------------------------------"
 
     # Refuse to build if any lab VM already exists.
@@ -178,7 +183,7 @@ do_build() {
         echo "  --- Launching $vm ---"
         # Unquoted on purpose: the resource string must word-split into
         # launch-node.sh's positional [cpus] [memory] [disk] arguments.
-        "$LAUNCH_SCRIPT" "$vm" ${VM_RESOURCES[$vm]:-}
+        "$LAUNCH_SCRIPT" "$vm" $(lab_vm_resources "$vm")
     done
 
     # Synchronize ~/.ssh/config with the new IPs.
@@ -234,6 +239,7 @@ do_destroy() {
     done
     echo "  Purging..."
     multipass purge
+    lab_clear_topology
 
     echo ""
     echo "|---------------------------------------------------------------------------"
@@ -246,6 +252,7 @@ do_destroy() {
 # ----------------------------------------------------------------------------
 
 do_rebuild() {
+    resolve_topology
     EXISTING=$(list_existing_lab_vms)
 
     echo ""
@@ -291,7 +298,7 @@ do_rebuild() {
         echo "  --- Launching $vm ---"
         # Unquoted on purpose: the resource string must word-split into
         # launch-node.sh's positional [cpus] [memory] [disk] arguments.
-        "$LAUNCH_SCRIPT" "$vm" ${VM_RESOURCES[$vm]:-}
+        "$LAUNCH_SCRIPT" "$vm" $(lab_vm_resources "$vm")
     done
 
     echo ""

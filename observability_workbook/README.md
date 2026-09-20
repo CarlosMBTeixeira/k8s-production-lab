@@ -94,8 +94,17 @@ git checkout feature/argo-and-observability-study
 export KUBECONFIG=~/k8slab/kubernetes/admin.conf
 
 kubectl get nodes                 # already up? then skip the next line
-bash scripts/pipeline/main.sh     # ~20-30 min from nothing; choose 4) ArgoCD + Observability
+bash scripts/pipeline/main.sh     # ~20-30 min from nothing
+#   topology prompt -> 1 (ONE worker, 8G)
+#   application prompt -> 4 (ArgoCD + Observability)
 ```
+
+**This workbook needs the 1-worker topology.** Both stacks total ~3.5 Gi
+and only fit reliably when that memory sits in a single schedulable node
+(ADR-035). Two 4 GB workers are the right choice for scheduling practice
+— anti-affinity, draining, DaemonSet spread — and the wrong one here;
+`main.sh` will warn you if you pair them. Non-interactive:
+`LAB_WORKERS=1 bash scripts/pipeline/main.sh`.
 
 **`main.sh` is the only script you run.** It builds the three VMs itself
 as step 1/7. Running `lab-management.sh build` or `rebuild` first makes
@@ -107,7 +116,8 @@ Then confirm the ADR-035 premise actually holds — this is the first real
 test of it:
 
 ```bash
-kubectl describe node worker-1 | grep -A6 'Allocated resources'
+kubectl describe node -l '!node-role.kubernetes.io/control-plane' \
+  | grep -A6 'Allocated resources'
 kubectl get pods -A --field-selector=status.phase!=Running
 ```
 
