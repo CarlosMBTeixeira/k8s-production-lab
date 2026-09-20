@@ -2380,3 +2380,104 @@ every ServiceMonitor target reached `up`, including the CoreDNS fix.
   (docs.tigera.io/calico/latest/network-policy/)
 - CIS Kubernetes Benchmark — kubelet API exposure guidance
 - NSA/CISA Kubernetes Hardening Guide
+
+---
+
+## ADR-035: Consolidate to one 8 GB worker so ArgoCD and the observability stack coexist
+
+**Date:** 2026-09-20
+**Status:** Accepted
+
+**Context:**
+The next block of study work — reconciling Grafana dashboards and
+alerting rules through ArgoCD instead of a push pipeline, and installing
+`kube-prometheus-stack` as an ArgoCD `Application` rather than by hand —
+requires ArgoCD and the observability stack to be **running at the same
+time**. ADR-031 established that they don't, and `scripts/pipeline/main.sh`
+enforced it by making the operator pick exactly one application per run.
+
+The arithmetic behind that restriction is narrower than "the host is out
+of RAM". The WSL2 budget is ~19 GB and the four VMs took 16 GB of it, but
+what actually constrains pod scheduling is not the 16 GB — it is the
+**worker** share of it. The control planes carry kubeadm's default
+`node-role.kubernetes.io/control-plane:NoSchedule` taint and nothing in
+this repo removes it, so every application pod lands on a worker. Real
+schedulable capacity was therefore 2 × 4 GB = 8 GB, minus each guest's own
+kernel, kubelet, containerd, Calico and node-exporter overhead (~0.8–1 GB
+per node), split across two nodes that the scheduler cannot pool.
+
+Measured footprints from ADR-031/ADR-032 and the chart values in
+`kubernetes/manifests/observability/`: Prometheus 1 Gi limit, Grafana
+256 Mi, Alertmanager 128 Mi, Loki 256 Mi, plus Alloy and node-exporter as
+DaemonSets and kube-state-metrics. ArgoCD adds roughly 1–1.5 Gi across
+its controller, repo-server, Redis, applicationset-controller and server.
+The total is ~3.5 Gi — comfortably inside 8 GB **in one node**, and a
+coin-flip across two 4 GB nodes once per-node overhead and the
+scheduler's inability to split a pod are accounted for.
+
+**Decision:**
+Remove `worker-2` and give `worker-1` the 4 GB it held. Topology becomes
+2 control planes (4 GB each) + 1 worker (8 GB) — the same 16 GB host
+footprint as before, one fewer guest OS to pay for, and all schedulable
+memory in a single node the scheduler can actually fill.
+
+`scripts/lab-management.sh` grows a `VM_RESOURCES` map so the worker's
+8 GB is declared in one place rather than being a magic argument at the
+call site; every VM not listed keeps `launch-node.sh`'s 2 CPU / 4 G /
+20 G defaults. `scripts/pipeline/main.sh` gains a fourth choice,
+**ArgoCD + Observability**, which sources `06_argocd.sh` and then
+`07_observability.sh` — ArgoCD first, so the observability stack can
+later be handed over to it as an `Application` without reinstalling
+anything. Rancher remains a solo install; it is the heaviest of the three
+and is not what this study block needs.
+
+Follow-on edits for the same reason: `sync-ssh-config.sh`,
+`fix-vm-clocks.sh`, `morning-check.sh`, `02_kubeadm_join.sh` and
+`ansible/inventory/hosts.ini` all drop `w-2`.
+
+**Rejected alternatives:**
+- **Delete `worker-2` and hand the 4 GB back to the WSL2 host.** The
+  obvious reading of "free 4 GB", and wrong: host RAM is not what pods
+  are scheduled against. It would have *halved* schedulable capacity to
+  4 GB and made the coexistence problem strictly worse. The freed memory
+  has to go back into the surviving worker for the change to mean
+  anything. Recorded here because it is the mistake the framing invites.
+- **Keep 2 + 2 and shrink resource requests further.** Prometheus is
+  already at a 1 Gi limit with 24 h retention; cutting deeper trades a
+  scheduling problem for an OOMKill problem, and debugging evicted pods
+  mid-exercise defeats the point of the exercises.
+- **Raise the WSL2 allocation past 20 GB.** 24 GB host, Windows needs its
+  share; pushing to 21–22 GB moves the pressure onto the host and risks
+  swapping during sessions, which is how the clock-drift failures in
+  ADR-031/`fix-vm-clocks.sh` started.
+- **Untaint the control planes instead.** Would unlock 8 GB more capacity
+  without touching the topology, but it stops the lab resembling any real
+  cluster, puts application workloads next to etcd, and undermines the
+  HA control-plane work in ADR-025.
+
+**Trade-offs accepted:**
+- **No multi-worker scheduling behaviour left to observe.** Pod
+  anti-affinity, `topologySpreadConstraints`, DaemonSet spread across
+  workers, and draining one worker to watch workloads move all stop being
+  demonstrable. The DaemonSet count drops from 4 to 3 (2 control planes +
+  1 worker), which also removes the specific failure mode noted in
+  ADR-032 ("only 2 of 4 nodes got an Alloy pod").
+- **Worker-level HA is gone.** `worker-1` is now a single point of failure
+  for every workload. The *control plane* stays HA (kube-vip + 2 nodes,
+  ADR-025) — which is the half this lab was built to exercise — but any
+  node-failure drill now has to target a control plane, not a worker.
+- **Reversible, and cheaply.** Re-adding `worker-2` is: put it back in the
+  five lists named above, set `worker-1` back to `"2 4G 20G"` in
+  `VM_RESOURCES`, rebuild. The lab is destroyed and rebuilt every session
+  anyway, so there is no migration to perform.
+- **Untested at time of writing.** The cluster was not running when this
+  change was made (no Multipass instances since the 24 July teardown). The
+  first `lab-management.sh rebuild --force` + `main.sh` choice 4 is the
+  real verification, and the number to check afterwards is
+  `kubectl describe node worker-1 | grep -A6 'Allocated resources'`.
+
+**References:**
+- ADR-025 — HA control plane (why the control planes stay as they are)
+- ADR-031 — observability stack sizing and the one-app-at-a-time rule this supersedes
+- ADR-032 — Loki + Alloy, including the DaemonSet-coverage note
+- Kubernetes docs — Taints and Tolerations (the default control-plane taint)

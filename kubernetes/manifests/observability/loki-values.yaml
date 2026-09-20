@@ -1,4 +1,4 @@
-# Loki values, sized for a 4-node lab. SingleBinary deployment mode
+# Loki values, sized for a 3-node lab (ADR-035). SingleBinary deployment mode
 # (all Loki components in one process) with filesystem storage -- no
 # object storage / StorageClass needed. See ADR-032.
 

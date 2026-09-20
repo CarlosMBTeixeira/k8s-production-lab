@@ -32,12 +32,11 @@ declare -A ALIASES=(
     ["cp-1"]="controlplane-1"
     ["cp-2"]="controlplane-2"
     ["w-1"]="worker-1"
-    ["w-2"]="worker-2"
 )
 
 # Explicit order for the generated block (associative arrays in bash are
 # unordered, so we iterate this list to keep output deterministic).
-HOSTS_ORDER=(cp-1 cp-2 w-1 w-2)
+HOSTS_ORDER=(cp-1 cp-2 w-1)
 
 # ----------------------------------------------------------------------------
 # Build the new managed block

@@ -6,7 +6,7 @@
 # scheduling pauses), even while `timedatectl` reports "synchronized: yes"
 # on the guest -- the daemon trusts its last successful check, not
 # continuous verification. Confirmed during the observability stack
-# install (2026-07-19): 3 of 4 VMs were ~20 minutes behind despite
+# install (2026-07-19): 3 of the then-4 VMs were ~20 minutes behind despite
 # reporting synchronized, breaking TLS certificate validation on a
 # Gateway whose cert had just been generated on the WSL2 host.
 #
@@ -17,7 +17,7 @@
 set -uo pipefail
 
 DRIFT_THRESHOLD_SECONDS=30
-VMS=(cp-1 cp-2 w-1 w-2)
+VMS=(cp-1 cp-2 w-1)
 
 echo "|---------------------------------------------------------------------------"
 echo "| Checking VM clock drift"
