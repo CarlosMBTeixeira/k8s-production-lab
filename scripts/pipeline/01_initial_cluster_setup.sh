@@ -18,7 +18,7 @@ launch_machines() {
     ansible all -m ping
 }
 
-configure_the_four_nodes() {
+configure_the_nodes() {
     section "| Step 2/7: Configuring nodes (site.yml)"
     ansible-playbook ansible/site.yml
 }
@@ -51,7 +51,7 @@ check_final_state() {
 }
 
 launch_machines
-configure_the_four_nodes
+configure_the_nodes
 deploy_kube_vip
 bootstrap_control_plane_1
 install_cni

@@ -23,13 +23,14 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Workers to join. If the lab grows, add their SSH aliases here.
-WORKERS=(w-1 w-2)
+# One worker only since ADR-035 (worker-2 removed, its RAM folded into
+# worker-1 so ArgoCD and the observability stack fit on one node).
+WORKERS=(w-1)
 
 # Worker -> kubectl node name mapping (so we can 'kubectl wait' on the
 # right object after each join). Multipass names diverge from SSH aliases.
 declare -A WORKER_NODE_NAME=(
     [w-1]=worker-1
-    [w-2]=worker-2
 )
 
 # ----------------------------------------------------------------------------
@@ -90,8 +91,8 @@ generate_fresh_join_command() {
 
 # ----------------------------------------------------------------------------
 # Step 3: Join each worker and wait for it to reach Ready.
-# Sequential rather than parallel: easier to debug if one fails, and
-# 2 workers don't make parallel worth the complexity.
+# Sequential rather than parallel: easier to debug if one fails, and a
+# single worker makes parallel pointless anyway.
 # ----------------------------------------------------------------------------
 join_each_worker() {
     section "Step 3/4: Joining workers"
