@@ -84,9 +84,13 @@ LAB_WORKERS=2 bash scripts/pipeline/main.sh
 
 Two options, both documented in ADR-029:
 
-- **SSH tunnel (always works, no setup):**
-  `./scripts/tunnels/rancher-tunnel.sh` / `argocd-tunnel.sh` / `grafana-tunnel.sh`,
-  then browse to `https://localhost:<port>/`.
+- **SSH tunnel (always works, no setup):** `./scripts/tunnels/` holds one
+  per target — `rancher-tunnel.sh` (8443), `argocd-tunnel.sh` (8444) and
+  `grafana-tunnel.sh` (8445) forward to a Gateway on :443;
+  `prometheus-tunnel.sh` (9090), `loki-tunnel.sh` (3100) and
+  `alloy-tunnel.sh` (12345) forward to a Service ClusterIP, since
+  kube-prometheus-stack and Loki expose no Gateway of their own.
+  Override the local port with `LOCAL_PORT=`.
 - **Direct IP access (faster, needs one setup step per Windows session):**
   run `scripts/windows/setup-route.ps1` once from an elevated PowerShell
   after each Windows/PC restart (it self-elevates and figures out the

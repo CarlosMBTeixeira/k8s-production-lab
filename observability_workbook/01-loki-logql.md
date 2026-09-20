@@ -8,6 +8,10 @@ label selector when no PromQL query does.
 - Lab up, `main.sh` choice **3** or **4** (observability installed).
 - `export KUBECONFIG=~/k8slab/kubernetes/admin.conf`
 - Grafana reachable: `./scripts/tunnels/grafana-tunnel.sh` → `https://localhost:8445/`
+- Loki's API reachable: `./scripts/tunnels/loki-tunnel.sh` → `http://localhost:3100/`
+  (no UI — Grafana Explore is the UI; this is for asking Loki directly)
+- Alloy's component graph, when logs don't arrive:
+  `./scripts/tunnels/alloy-tunnel.sh` → `http://localhost:12345/graph`
 
 **Read first (and only this):** Grafana Labs — *LogQL: Log query
 language*, the "Log queries" and "Metric queries" pages. Twenty minutes.
@@ -59,35 +63,60 @@ Alloy config. Which means you can read it:
 kubectl -n monitoring get cm alloy -o yaml | sed -n '/discovery.relabel/,/^ *}/p'
 ```
 
-That `discovery.relabel "pods"` block produces exactly three labels:
-`namespace`, `pod`, `container`. **Nothing else exists.** Most LogQL
-examples on the internet start `{job="..."}` or `{app="..."}`, and every
-one of them will return nothing here. Prove it before you trust it.
+That `discovery.relabel "pods"` block produces three labels —
+`namespace`, `pod`, `container`. **It is not the whole story, and the
+gap is the first exercise.**
 
 ---
 
 ## 1.1 — What labels actually exist
 
-> **Hypothesis.** `{job="..."}` returns nothing, and Grafana's label
-> browser will show exactly three label keys.
+> **Hypothesis.** The label set is exactly what `discovery.relabel`
+> produces: `namespace`, `pod`, `container`, and nothing else. Every
+> LogQL example starting `{job="..."}` or `{app="..."}` therefore returns
+> nothing here.
 >
-> **Tool.** Grafana → Explore → Loki → the **Label browser**, then run
-> `{job="alloy"}`.
+> **Tool.** Ask Loki, rather than reading the config and believing it.
+> `./scripts/tunnels/loki-tunnel.sh`, then from another terminal:
+> ```bash
+> curl -s localhost:3100/loki/api/v1/labels | jq -r '.data[]'
+> ```
+> (Grafana's Explore → Loki → **Label browser** shows the same list.)
 >
-> **Expected if right.** Three keys: `namespace`, `pod`, `container`.
-> `{job=...}` errors or returns "no data". A query with no selector at
-> all — a bare `|= "error"` — is rejected outright, because Loki needs a
-> stream selector to know which index shards to open. This is the
-> structural difference from PromQL: `up` is a valid PromQL query;
-> there is no valid LogQL equivalent.
+> **Expected if right.** Three keys. **You will get six:**
+> `container`, `instance`, `job`, `namespace`, `pod`, `service_name`.
 >
-> **What would have caught this sooner.** Reading `alloy-values.yaml`
-> before writing a query. The collector config *is* the schema.
+> The hypothesis is wrong, and usefully so. `discovery.relabel` is not
+> the only thing attaching labels — `loki.source.kubernetes` adds three
+> of its own that appear in no relabel rule:
+> ```bash
+> curl -s localhost:3100/loki/api/v1/label/job/values | jq -r '.data[]'
+> # loki.source.kubernetes.pods      <- one value, the component's name
+> curl -s localhost:3100/loki/api/v1/label/service_name/values | jq -r '.data[]'
+> # grafana, loki, etcd, kube-apiserver, envoy, redis, ...
+> ```
+> So `{job="..."}` is *valid* — it just has exactly one value, the
+> component name, which selects everything and discriminates nothing.
+> `{job="alloy"}` still returns nothing, for a subtler reason than
+> "the label doesn't exist". `{app="..."}` genuinely doesn't exist.
+>
+> And `service_name` is the one you actually want: it is per-workload,
+> and it is the label most people reach for `app` expecting.
+>
+> **What would have caught this sooner.** Querying the label API before
+> writing any selector. Reading `alloy-values.yaml` gets you three of the
+> six — the config tells you what *you* added, never what the components
+> add on your behalf. **Ask the system, don't infer from its config.**
 
-**Done when** you can state, without looking, why adding a fourth label
-requires editing `alloy-values.yaml` and a `helm upgrade`, not a Loki
-setting — and why adding a high-cardinality one (say, `pod_ip`) would be
-a bad idea.
+A bare filter with no selector — `|= "error"` on its own — is rejected
+outright: Loki needs a stream selector to know which index shards to
+open. That is the structural difference from PromQL. `up` is a valid
+PromQL query; there is no valid LogQL equivalent.
+
+**Done when** you can name all six labels and say which component
+attaches each — why adding one of your own requires editing
+`alloy-values.yaml` plus a `helm upgrade`, not a Loki setting, and why
+adding a high-cardinality one (say, `pod_ip`) would be a bad idea.
 
 ---
 
@@ -238,9 +267,10 @@ sum by (backend) (
 > as a real label would make it fast and make your index pay for it
 > forever.
 >
-> **What would have caught this sooner.** The label-browser result in
-> 1.1. Knowing only three labels exist is what makes the query-time
-> parser the obvious move rather than a surprise.
+> **What would have caught this sooner.** The label API result in 1.1.
+> Knowing the label set is small and fixed — six, none of them
+> application-specific — is what makes the query-time parser the obvious
+> move rather than a surprise.
 
 **Done when** you can answer, from logs alone: *how many distinct
 backends are failing, which one is worst, and when did it start* — and
@@ -279,7 +309,7 @@ kubectl delete namespace logdemo
 
 ## Done-criteria for the whole session
 
-- [ ] Explain why `{job="x"}` returns nothing here, citing the file that decides it.
+- [ ] Name all six labels, and which component attaches each — and explain why `{job="alloy"}` returns nothing while `{job="loki.source.kubernetes.pods"}` returns everything.
 - [ ] Predict a `rate()` result before running it, within ~10%.
 - [ ] Aggregate by a field that is not a label, and explain the ingest/query cardinality trade.
 - [ ] Name the two queries in 1.2 that differ ~10× in bytes processed, and why.
@@ -291,7 +321,7 @@ Fill these in from what actually happened, and add the ones that bit you.
 
 | Symptom | Tool | Cause | Fix | What would have told me this first |
 |---|---|---|---|---|
-| Query returns "no data", no error | Label browser | Selector uses a label Alloy never creates | Use `namespace`/`pod`/`container` | `alloy-values.yaml` relabel rules |
+| Query returns "no data", no error | `/loki/api/v1/labels`, then `/values` | Label doesn't exist, or the value doesn't | Check the label API before the selector | Asking the system instead of reading the config |
 | Parsed query returns fewer rows than unparsed | Row counts, side by side | Parser silently drops non-conforming lines | Match the parser to the format, or filter first | Comparing counts before trusting the parse |
 | Query is slow, results are small | Explore → Stats | Filtering by line instead of by label | Narrow the stream selector | Bytes processed, not row count |
 | All history gone after a restart | `loki-values.yaml` | `persistence.enabled: false` | Expected in this lab; object storage in real ones | The values file, before relying on retention |
