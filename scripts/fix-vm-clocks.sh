@@ -17,7 +17,11 @@
 set -uo pipefail
 
 DRIFT_THRESHOLD_SECONDS=30
-VMS=(cp-1 cp-2 w-1)
+
+# Topology comes from lab-config.sh (ADR-036): checking a worker that was
+# never built reports a false failure every run.
+source "$(dirname "$0")/lab-config.sh"
+read -r -a VMS <<< "$(lab_ssh_aliases)"
 
 echo "|---------------------------------------------------------------------------"
 echo "| Checking VM clock drift"

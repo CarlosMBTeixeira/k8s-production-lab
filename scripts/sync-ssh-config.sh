@@ -26,17 +26,11 @@ CONFIG_FILE="$HOME/.ssh/config"
 MARKER_START="# === K8S LAB BEGIN (managed by sync-ssh-config.sh) ==="
 MARKER_END="# === K8S LAB END ==="
 
-# Alias map: short SSH alias -> Multipass VM name.
-# Add new VMs here and to HOSTS_ORDER below.
-declare -A ALIASES=(
-    ["cp-1"]="controlplane-1"
-    ["cp-2"]="controlplane-2"
-    ["w-1"]="worker-1"
-)
-
-# Explicit order for the generated block (associative arrays in bash are
-# unordered, so we iterate this list to keep output deterministic).
-HOSTS_ORDER=(cp-1 cp-2 w-1)
+# Which hosts to emit comes from the resolved topology (ADR-036), not from
+# a hard-coded list -- a 3-node lab must not leave a stale w-2 entry in
+# ~/.ssh/config pointing at an IP that now belongs to something else.
+source "$(dirname "$0")/lab-config.sh"
+read -r -a HOSTS_ORDER <<< "$(lab_ssh_aliases)"
 
 # ----------------------------------------------------------------------------
 # Build the new managed block
@@ -46,7 +40,7 @@ NEW_BLOCK="$MARKER_START"$'\n'
 
 for i in "${!HOSTS_ORDER[@]}"; do
     alias="${HOSTS_ORDER[$i]}"
-    vm_name="${ALIASES[$alias]}"
+    vm_name="$(lab_alias_to_vm "$alias")"
 
     # Extract IP from multipass info CSV output.
     # NR==2 skips the header row; column 3 holds the IPv4 address.

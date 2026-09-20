@@ -11,13 +11,13 @@ problems along the way:
   /targets page, not just "kubectl apply and hope"
 - GitOps via ArgoCD with auto-sync, self-heal, and a rollback path
   actually tested against live drift
-- 35 architecture decisions documented as ADRs -- context, rejected
+- 36 architecture decisions documented as ADRs -- context, rejected
   alternatives, and trade-offs, not just what was installed
 
 ## Stack
 - **Host:** HP OMEN 16-ap0xxx (Ryzen 9 8940HX, 24 GB RAM, Windows 11 Home)
 - **Virtualization:** WSL2 (Ubuntu 24.04) with nested KVM → Multipass VMs
-- **Cluster:** 3 nodes (2 control plane + 1 worker), kubeadm-based HA, Kubernetes 1.35
+- **Cluster:** kubeadm-based HA, Kubernetes 1.35 — 2 control planes plus **1 or 2 workers**, chosen at build time (ADR-036)
 - **Networking:** Calico (CNI), Gateway API via Envoy Gateway + MetalLB (LoadBalancer/ingress,
   replacing ingress-nginx after its 2026-03-31 EOL), Kubernetes NetworkPolicy
   for default-deny network segmentation (ADR-034)
@@ -28,10 +28,12 @@ problems along the way:
   Cloudflare DNS-01, ADR-033)
 - **Tooling:** Ansible (provisioning), Helm
 - **RAM constraint:** the host's ~19 GB WSL2 budget doesn't fit every
-  application at once (ADR-031). Since ADR-035 the topology is 2 control
-  planes + **one** 8 GB worker rather than two 4 GB ones, which is enough
-  for ArgoCD **and** the observability stack together — `main.sh` offers
-  that pairing as a single choice. Rancher still runs alone.
+  application at once (ADR-031). The worker budget is fixed at 8 GB and
+  split by topology: **one 8 GB worker** holds ArgoCD *and* the
+  observability stack together (ADR-035), **two 4 GB workers** don't but
+  make multi-node scheduling observable. Either way the host pays the
+  same. `main.sh` prompts for both the topology and the application, and
+  warns if the pair can't fit. Rancher always runs alone.
 - **Deferred to CKS study:** External Secrets Operator, Pod Security
   Standards, and RBAC -- deliberately out of scope for this v1 (see Roadmap)
 
@@ -44,10 +46,13 @@ Windows 11 Home
         ├── cp1   (4 GB, 2 vCPU) — control plane  (tainted NoSchedule)
         ├── cp2   (4 GB, 2 vCPU) — control plane  (tainted NoSchedule)
         └── w1    (8 GB, 2 vCPU) — worker         (every workload lands here)
+            # or, with LAB_WORKERS=2:
+            #   w1  (4 GB, 2 vCPU) + w2 (4 GB, 2 vCPU)
 ```
 
-Same 16 GB footprint as the previous 2+2 layout, one fewer guest OS to
-pay for, and all the schedulable memory in a single node (ADR-035).
+16 GB either way — the worker budget is fixed and only its division
+changes (ADR-035, ADR-036). One worker puts all schedulable memory in a
+single node; two make scheduling behaviour observable.
 
 ## Running the lab
 
@@ -55,12 +60,17 @@ The lab is destroyed and rebuilt from scratch every session — nothing is
 left running between uses.
 
 ```bash
-# One command does everything: main.sh's first stage launches the 3 VMs
+# One command does everything: main.sh prompts for the topology (1 or 2
+# workers, with guidance on which to pick), then its first stage launches
+# the VMs
 # itself (01_initial_cluster_setup.sh calls lab-management.sh build), then
 # provisions Kubernetes + Gateway API/MetalLB + cert-manager, then prompts
 # for what to install: Rancher alone, ArgoCD alone, Observability alone,
 # or ArgoCD + Observability together (ADR-031, ADR-035).
 bash scripts/pipeline/main.sh
+
+# Skip the topology prompt (useful for automation):
+LAB_WORKERS=2 bash scripts/pipeline/main.sh
 
 # Do NOT build the VMs first and then run main.sh -- `lab-management.sh
 # build` refuses when lab VMs already exist, and main.sh runs under

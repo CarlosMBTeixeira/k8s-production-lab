@@ -17,6 +17,13 @@
 
 set -uo pipefail
 
+# Resolved node topology (ADR-036). Read from .lab-topology, which
+# lab-management.sh writes at build time -- so this check knows what was
+# actually built, not what some branch assumed.
+source "$(dirname "$0")/lab-config.sh"
+read -r -a LAB_VMS <<< "$(lab_vm_names)"
+read -r -a LAB_ALIASES <<< "$(lab_ssh_aliases)"
+
 ERRORS=0
 
 # Helper that runs a command silently and reports success or failure.
@@ -49,6 +56,8 @@ info() {
 
 echo "|---------------------------------------------------------------------------"
 echo "| Lab health check — $(date '+%H:%M %d-%m-%Y')"
+echo "| Topology: $(lab_topology_line)"
+echo "|           (from $(lab_topology_source))"
 echo "|---------------------------------------------------------------------------"
 
 echo "WSL2 host:"
@@ -63,18 +72,18 @@ check "New inbound connections to bridge allowed (iptables-legacy)" "sudo iptabl
 echo ""
 
 echo "VMs:"
-for vm in controlplane-1 controlplane-2 worker-1; do
+for vm in "${LAB_VMS[@]}"; do
     check "$vm running"                 "multipass info $vm | grep -q 'State.*Running'"
 done
 echo ""
 
 echo "SSH access:"
-for alias in cp-1 cp-2 w-1; do
+for alias in "${LAB_ALIASES[@]}"; do
     check "ssh $alias works"            "ssh -o ConnectTimeout=5 $alias 'true'"
 done
 echo "Clock sync:"
 HOST_EPOCH_FOR_CHECK=$(date -u +%s)
-for alias in cp-1 cp-2 w-1; do
+for alias in "${LAB_ALIASES[@]}"; do
     vm_epoch=$(ssh -o ConnectTimeout=5 "$alias" 'date -u +%s' 2>/dev/null)
     if [ -z "$vm_epoch" ]; then
         drift_ok="false"

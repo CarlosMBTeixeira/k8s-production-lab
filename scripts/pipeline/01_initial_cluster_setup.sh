@@ -5,6 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
+# ansible/inventory/hosts.ini lists every worker the lab *can* have -- an
+# INI inventory cannot include a host conditionally. So every play is run
+# with --limit, scoping it to the workers that were actually built
+# (ADR-036). With 2 workers the limit is simply the whole cluster.
+source "${SCRIPT_DIR}/../lab-config.sh"
+ANSIBLE_LIMIT="$(lab_ansible_limit)"
+
 section() {
     echo
     echo "============================================================"
@@ -13,34 +20,34 @@ section() {
 }
 
 launch_machines() {
-    section "| Step 1/7: Launching VMs"
+    section "| Step 1/7: Launching VMs — $(lab_topology_line)"
     bash scripts/lab-management.sh build
-    ansible all -m ping
+    ansible all -m ping --limit "${ANSIBLE_LIMIT}"
 }
 
 configure_the_nodes() {
     section "| Step 2/7: Configuring nodes (site.yml)"
-    ansible-playbook ansible/site.yml
+    ansible-playbook ansible/site.yml --limit "${ANSIBLE_LIMIT}"
 }
 
 deploy_kube_vip() {
     section "| Step 3/7: Deploying kube-vip (VIP for control plane)"
-    ansible-playbook ansible/playbooks/08-kube-vip.yml
+    ansible-playbook ansible/playbooks/08-kube-vip.yml --limit "${ANSIBLE_LIMIT}"
 }
 
 bootstrap_control_plane_1() {
     section "| Step 4/7: Bootstrapping K8s control plane (kubeadm init)"
-    ansible-playbook ansible/playbooks/09-kubeadm-init.yml
+    ansible-playbook ansible/playbooks/09-kubeadm-init.yml --limit "${ANSIBLE_LIMIT}"
 }
 
 install_cni() {
     section "| Step 5/7: Installing Calico CNI"
-    ansible-playbook ansible/playbooks/10-cni-calico.yml
+    ansible-playbook ansible/playbooks/10-cni-calico.yml --limit "${ANSIBLE_LIMIT}"
 }
 
 join_second_control_plane() {
     section "| Step 6/7: Joining cp-2 as second control plane"
-    ansible-playbook ansible/playbooks/11-controlplane-join.yml
+    ansible-playbook ansible/playbooks/11-controlplane-join.yml --limit "${ANSIBLE_LIMIT}"
 }
 
 check_final_state() {

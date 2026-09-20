@@ -2470,14 +2470,138 @@ Follow-on edits for the same reason: `sync-ssh-config.sh`,
   five lists named above, set `worker-1` back to `"2 4G 20G"` in
   `VM_RESOURCES`, rebuild. The lab is destroyed and rebuilt every session
   anyway, so there is no migration to perform.
-- **Untested at time of writing.** The cluster was not running when this
-  change was made (no Multipass instances since the 24 July teardown). The
-  first `lab-management.sh rebuild --force` + `main.sh` choice 4 is the
-  real verification, and the number to check afterwards is
-  `kubectl describe node worker-1 | grep -A6 'Allocated resources'`.
+- **Verified 2026-09-20.** Built, and both stacks installed together on
+  one 8 GB worker. Measured: `worker-1` capacity `8126724Ki`, allocation
+  **2930Mi requests / 3Gi limits — 37% of the node**, every pod Running,
+  nothing Pending or OOMKilled. The estimate in this ADR was ~3.5 Gi, so
+  the real figure leaves more headroom than predicted. For contrast, the
+  2×4 GB layout measured 608Mi and 832Mi of requests already committed
+  per worker with ArgoCD alone, before any of the observability stack.
 
 **References:**
 - ADR-025 — HA control plane (why the control planes stay as they are)
 - ADR-031 — observability stack sizing and the one-app-at-a-time rule this supersedes
 - ADR-032 — Loki + Alloy, including the DaemonSet-coverage note
 - Kubernetes docs — Taints and Tolerations (the default control-plane taint)
+
+---
+
+## ADR-036: Node topology as a runtime variable, not a branch difference
+
+**Date:** 2026-09-20
+**Status:** Accepted (supersedes the fixed topology in ADR-035)
+
+**Context:**
+ADR-035 consolidated the lab to one 8 GB worker so ArgoCD and the
+observability stack could coexist, and noted the change was "reversible,
+and cheaply" — put `worker-2` back in five lists and rebuild. In practice
+that reversal lived on `main`, and the 3-node layout on
+`feature/argo-and-observability-study`. Choosing a topology meant checking
+out a branch.
+
+That is the wrong axis. The two layouts answer different questions and
+both remain useful indefinitely:
+
+| | 1 worker (8 GB) | 2 workers (4 GB each) |
+|---|---|---|
+| ArgoCD + observability together | yes | unreliable |
+| Pod anti-affinity, `topologySpreadConstraints` | no | yes |
+| Drain a worker, watch pods move | no | yes |
+| DaemonSet spread across workers | no | yes |
+| Worker-level HA | no | yes |
+
+Encoding that in branches means the choice is entangled with unrelated
+content — `main` has no workbook, the study branch has no second worker —
+and switching costs a checkout plus a rebuild rather than a rebuild alone.
+
+**Decision:**
+Add `scripts/lab-config.sh` as the single source of truth for topology,
+sourced by every script that needs to know which VMs exist. Worker count
+resolves in this order: `LAB_WORKERS` in the environment, then
+`.lab-topology` in the repo root, then a default of 1.
+
+The **worker RAM budget stays fixed at 8 GB total** and is divided evenly.
+1×8 G and 2×4 G cost the WSL2 host identically, so switching never changes
+the host's memory arithmetic — only whether the scheduler sees one pool or
+two. That is the whole difference ADR-035 was about, now expressible
+without editing anything.
+
+`lab-management.sh` and `main.sh` prompt for the topology when it is not
+already set, and the prompt says when to pick which — the workbook wants
+1, scheduling practice wants 2. `LAB_WORKERS=2 bash scripts/pipeline/main.sh`
+skips the prompt, keeping automation non-interactive. `main.sh` additionally
+warns and asks for confirmation before installing ArgoCD + observability on
+a 2-worker lab.
+
+The persisted `.lab-topology` (gitignored) is what makes this safe rather
+than merely convenient: `morning-check.sh` and `fix-vm-clocks.sh` run in
+shells that never saw the env var, and checking for a worker that was never
+built reports a false failure on every run. `lab-management.sh` writes the
+file on build and clears it on destroy, so those scripts describe reality.
+
+**Ansible is the awkward part, and the awkwardness is recorded on purpose.**
+An INI inventory cannot include a host conditionally, so
+`ansible/inventory/hosts.ini` lists *every worker the lab can have* and the
+pipeline passes `--limit "$(lab_ansible_limit)"` to every play — the
+limit being `controlplane:w-1` at one worker and `k8s_cluster` at two.
+Consequence worth knowing: running a playbook by hand without that limit on
+a 1-worker lab fails on `w-2` as unreachable. That is expected, not a bug.
+
+**Rejected alternatives:**
+- **Split the inventory across a directory** (`00-hosts.ini` +
+  a generated `10-workers.ini`). Tested and it does not work: Ansible
+  parses each INI file independently, so `[k8s_cluster:children]`
+  referencing a `workers` group defined in a sibling file fails with
+  *"includes undefined group 'workers'"*. Recorded because it is the
+  obvious first idea.
+- **Generate `hosts.ini` from a template**, gitignoring the rendered file
+  (the `cloud-init/node.yaml` + `.rendered/` pattern). Workable, and
+  rejected for cost: it untracks a file whose comments are documentation,
+  and makes a missing render a confusing Ansible error. `--limit` is
+  idiomatic Ansible and changes nothing structural.
+- **Keep it a branch difference.** The status quo. Fails the moment you
+  want the workbook *and* two workers, which is a normal thing to want.
+- **Make the memory budget a variable too.** Deliberately not done. A
+  fixed 8 GB worker budget is what keeps the host arithmetic identical
+  across topologies; making it configurable invites a combination that
+  silently swaps the host, which is how the ADR-031 clock-drift failures
+  began.
+
+**Trade-offs accepted:**
+- Nine files now source `lab-config.sh`. A syntax error there breaks the
+  whole pipeline instead of one script — mitigated by it containing no
+  side effects, only definitions.
+- `.lab-topology` is untracked state that the scripts trust. If it
+  disagrees with reality (edited by hand, or VMs destroyed with
+  `multipass delete` rather than `lab-management.sh destroy`),
+  `morning-check.sh` reports confidently wrong results. The header line it
+  now prints — topology plus where the number came from — exists so that
+  disagreement is visible in the first three lines of output.
+- Switching topology still requires a full rebuild. Nothing here migrates
+  a running cluster, and nothing should: the lab is destroyed and rebuilt
+  every session by design.
+- **Verified end to end 2026-09-20**, in both directions against live
+  Multipass:
+
+  | | 2 workers | 1 worker |
+  |---|---|---|
+  | `.lab-topology` | `2` | `1` (cleared by destroy, rewritten on build) |
+  | Worker capacity | `4004104Ki` each | `8126724Ki` |
+  | `lab_ansible_limit()` | `k8s_cluster` → 4 hosts | `controlplane:w-1` → 3 hosts |
+  | DaemonSets | `DESIRED 4` | `DESIRED 3` |
+  | Stale `w-2` in `~/.ssh/config` after switching down | — | none |
+  | Application installed | ArgoCD (7/7) | ArgoCD + observability (19/19) |
+
+  `morning-check.sh` reported the correct topology from `.lab-topology` in
+  both cases, from shells that never saw `LAB_WORKERS` — the false-failure
+  case the state file exists to prevent.
+
+  The documented no-limit failure was reproduced deliberately: `ansible
+  all -m ping` without `--limit` on the 1-worker lab returns `w-2 |
+  UNREACHABLE!` and the other three `SUCCESS`. Expected behaviour, now
+  observed rather than asserted.
+
+**References:**
+- ADR-035 — the consolidation this makes configurable
+- ADR-031 — the RAM budget and the clock-drift failures that pressure invites
+- Ansible docs — patterns and `--limit`
