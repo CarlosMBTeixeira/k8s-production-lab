@@ -55,14 +55,19 @@ The lab is destroyed and rebuilt from scratch every session — nothing is
 left running between uses.
 
 ```bash
-# 1. Build/rebuild the 3 VMs, fix WSL2/Docker networking, sync SSH config,
-#    run a health check. Safe to run repeatedly.
-./scripts/lab-management.sh rebuild --force
-
-# 2. Provision Kubernetes + Gateway API/MetalLB, then choose what to
-#    install: Rancher alone, ArgoCD alone, Observability alone, or
-#    ArgoCD + Observability together (ADR-031, ADR-035).
+# One command does everything: main.sh's first stage launches the 3 VMs
+# itself (01_initial_cluster_setup.sh calls lab-management.sh build), then
+# provisions Kubernetes + Gateway API/MetalLB + cert-manager, then prompts
+# for what to install: Rancher alone, ArgoCD alone, Observability alone,
+# or ArgoCD + Observability together (ADR-031, ADR-035).
 bash scripts/pipeline/main.sh
+
+# Do NOT build the VMs first and then run main.sh -- `lab-management.sh
+# build` refuses when lab VMs already exist, and main.sh runs under
+# `set -e`, so it aborts at step 1/7. Use lab-management.sh on its own
+# only to destroy, or to rebuild VMs without reprovisioning:
+./scripts/lab-management.sh destroy --force
+./scripts/lab-management.sh rebuild --force
 ```
 
 ### Accessing lab UIs from Windows
@@ -93,12 +98,17 @@ bash scripts/morning-check.sh
 Run automatically at the end of `lab-management.sh build`/`rebuild`, or
 standalone any time to check current state.
 
-## GitOps repo
+## GitOps
 
-Kubernetes manifests deployed through ArgoCD live in a separate repo,
-[k8s-gitops](https://github.com/CarlosMBTeixeira/k8s-gitops) — kept apart
-from this repo on purpose (infra-as-code vs. desired state), matching the
-author's day-job GitOps setup.
+Desired state deployed through ArgoCD lives in `gitops/` in this repo,
+adopted by the App-of-Apps root at
+`kubernetes/manifests/argocd/apps/root-app.yaml` — the only Application
+ever applied by hand. See `gitops/README.md` for the layout.
+
+A separate `k8s-gitops` repo is referenced by `docs/argocd-learning-path/`
+as the intended split of infra-as-code from desired state. It was never
+used, and the current work keeps both in this repo instead: one clone,
+one branch. The split remains the right call on a real platform team.
 
 ## Roadmap
 
