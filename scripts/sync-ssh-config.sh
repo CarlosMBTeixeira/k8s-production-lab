@@ -42,9 +42,18 @@ for i in "${!HOSTS_ORDER[@]}"; do
     alias="${HOSTS_ORDER[$i]}"
     vm_name="$(lab_alias_to_vm "$alias")"
 
-    # Extract IP from multipass info CSV output.
-    # NR==2 skips the header row; column 3 holds the IPv4 address.
-    ip=$(multipass info "$vm_name" --format csv 2>/dev/null | awk -F, 'NR==2 {print $3}')
+    # Extract IP from multipass info CSV output, locating the column by its
+    # header name. Multipass 1.17 inserted Zone columns before Ipv4, so a
+    # fixed column index silently returned the zone name ("zone1").
+    ip=$(multipass info "$vm_name" --format csv 2>/dev/null | awk -F, '
+        NR==1 { for (c = 1; c <= NF; c++) if (tolower($c) == "ipv4") col = c; next }
+        NR==2 && col { print $col }')
+
+    # Refuse anything that is not an IPv4 address rather than writing junk.
+    if [ -n "$ip" ] && ! [[ "$ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+        echo "⚠️  Unexpected IPv4 value '$ip' for $vm_name — skipping."
+        ip=""
+    fi
 
     # Skip silently if VM is not found or has no IP yet.
     if [ -z "$ip" ]; then
