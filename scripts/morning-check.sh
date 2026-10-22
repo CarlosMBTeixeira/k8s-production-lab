@@ -17,6 +17,13 @@
 
 set -uo pipefail
 
+# Resolved node topology (ADR-036). Read from .lab-topology, which
+# lab-management.sh writes at build time -- so this check knows what was
+# actually built, not what some branch assumed.
+source "$(dirname "$0")/lab-config.sh"
+read -r -a LAB_VMS <<< "$(lab_vm_names)"
+read -r -a LAB_ALIASES <<< "$(lab_ssh_aliases)"
+
 ERRORS=0
 
 # Helper that runs a command silently and reports success or failure.
@@ -24,10 +31,12 @@ ERRORS=0
 check() {
     local name="$1"
     local cmd="$2"
+    local hint="${3:-}"
     if eval "$cmd" >/dev/null 2>&1; then
         echo "  ✅ $name"
     else
         echo "  ❌ $name"
+        [ -n "$hint" ] && echo "     → $hint"
         ERRORS=$((ERRORS+1))
     fi
 }
@@ -47,6 +56,8 @@ info() {
 
 echo "|---------------------------------------------------------------------------"
 echo "| Lab health check — $(date '+%H:%M %d-%m-%Y')"
+echo "| Topology: $(lab_topology_line)"
+echo "|           (from $(lab_topology_source))"
 echo "|---------------------------------------------------------------------------"
 
 echo "WSL2 host:"
@@ -61,18 +72,18 @@ check "New inbound connections to bridge allowed (iptables-legacy)" "sudo iptabl
 echo ""
 
 echo "VMs:"
-for vm in controlplane-1 controlplane-2 worker-1 worker-2; do
+for vm in "${LAB_VMS[@]}"; do
     check "$vm running"                 "multipass info $vm | grep -q 'State.*Running'"
 done
 echo ""
 
 echo "SSH access:"
-for alias in cp-1 cp-2 w-1 w-2; do
+for alias in "${LAB_ALIASES[@]}"; do
     check "ssh $alias works"            "ssh -o ConnectTimeout=5 $alias 'true'"
 done
 echo "Clock sync:"
 HOST_EPOCH_FOR_CHECK=$(date -u +%s)
-for alias in cp-1 cp-2 w-1 w-2; do
+for alias in "${LAB_ALIASES[@]}"; do
     vm_epoch=$(ssh -o ConnectTimeout=5 "$alias" 'date -u +%s' 2>/dev/null)
     if [ -z "$vm_epoch" ]; then
         drift_ok="false"
@@ -96,7 +107,8 @@ echo "Repo:"
 info  "git status clean"                "cd ~/k8slab && [ -z \"\$(git status --porcelain)\" ]"
 # Being out of sync with origin IS a check: it usually means the operator
 # forgot to push or pull, and continuing risks divergent history.
-check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]"
+check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]" \
+      "run 'git push' or 'git pull' to resync (check 'git status -sb' for ahead/behind)"
 echo ""
 
 echo "|---------------------------------------------------------------------------"

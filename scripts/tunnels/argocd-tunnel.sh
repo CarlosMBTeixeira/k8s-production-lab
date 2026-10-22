@@ -16,7 +16,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 KUBECONFIG_LOCAL="${REPO_ROOT}/kubernetes/admin.conf"
 LOCAL_PORT=8444
 
-scp -o StrictHostKeyChecking=no cp-1:~/.kube/config "${KUBECONFIG_LOCAL}"
+scp -q -o StrictHostKeyChecking=no cp-1:~/.kube/config "${KUBECONFIG_LOCAL}"
 export KUBECONFIG="${KUBECONFIG_LOCAL}"
 
 ADDR="$(kubectl get gateway/argocd -n argocd -o jsonpath='{.status.addresses[0].value}')"

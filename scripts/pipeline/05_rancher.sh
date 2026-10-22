@@ -67,9 +67,21 @@ apply_gateway_and_route() {
     kubectl apply -f "${RANCHER_DIR}/httproute-rancher.yaml"
 
     echo "  Waiting for Gateway/rancher to get a MetalLB address..."
+    # rancher-tls's notBefore is stamped using this host's clock (see
+    # generate_tls_secret), but Envoy Gateway validates it against the VM's
+    # clock, which can lag by a few seconds. If Envoy Gateway reconciles the
+    # Secret before the VM clock reaches notBefore, it latches the listener
+    # as InvalidCertificateRef and won't re-check on its own -- it only
+    # reconciles the Secret on a change event, not on a timer. If we're
+    # still waiting halfway through, nudge the Secret to force a re-reconcile
+    # (by then the cert is genuinely valid on any clock within reason).
     for i in $(seq 1 30); do
         ADDR=$(kubectl get gateway/rancher -n "${RANCHER_NAMESPACE}" -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
         [ -n "${ADDR}" ] && break
+        if [ "${i}" -eq 15 ]; then
+            echo "  Still no address -- nudging Secret/rancher-tls in case Envoy Gateway validated it before its notBefore time..."
+            kubectl annotate secret rancher-tls -n "${RANCHER_NAMESPACE}" "reconcile-nudge=$(date -u +%s)" --overwrite >/dev/null
+        fi
         sleep 2
     done
 

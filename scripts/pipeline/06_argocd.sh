@@ -96,13 +96,25 @@ apply_gateway_and_route() {
     kubectl apply -f "${ARGOCD_DIR}/gateway-argocd.yaml"
     kubectl apply -f "${ARGOCD_DIR}/httproute-argocd.yaml"
 
+    # argocd-tls's notBefore is stamped using this host's clock (see
+    # generate_tls_secret), but Envoy Gateway validates it against the VM's
+    # clock, which can lag by a few seconds. If Envoy Gateway reconciles the
+    # Secret before the VM clock reaches notBefore, it latches the listener
+    # as InvalidCertificateRef and won't re-check on its own -- it only
+    # reconciles the Secret on a change event, not on a timer. If we're
+    # still waiting halfway through, nudge the Secret to force a re-reconcile
+    # (by then the cert is genuinely valid on any clock within reason).
     for i in $(seq 1 30); do
         ADDR=$(kubectl get gateway/argocd -n "${ARGOCD_NAMESPACE}" -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
         [ -n "${ADDR}" ] && break
+        if [ "${i}" -eq 15 ]; then
+            echo "  Still no address -- nudging Secret/argocd-tls in case Envoy Gateway validated it before its notBefore time..."
+            kubectl annotate secret argocd-tls -n "${ARGOCD_NAMESPACE}" "reconcile-nudge=$(date -u +%s)" --overwrite >/dev/null
+        fi
         sleep 2
     done
     if [ -z "${ADDR:-}" ]; then
-        echo "  ERROR: Gateway never got an address."
+        echo "  ERROR: Gateway never got an address. Check 'kubectl describe gateway/argocd -n ${ARGOCD_NAMESPACE}'."
         exit 1
     fi
     echo "  Gateway address: ${ADDR}"

@@ -1,4 +1,6 @@
-# kube-prometheus-stack values, sized for a 4-node lab (4GB RAM/VM).
+# kube-prometheus-stack values, sized for a 3-node lab: 2 control planes
+# (4GB, tainted NoSchedule) + 1 worker (8GB) since ADR-035, which is
+# where every pod here actually runs.
 # See ADR-031 for the reasoning behind every non-default value here,
 # and ADR-032 for the Loki datasource added below.
 

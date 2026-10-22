@@ -7,17 +7,23 @@ assume the file structure and Applications built in earlier ones.
 
 ## Branch policy — read this once, then forget about it
 
-**Every file this path touches lives on `feature/argocd`, in both
-`k8s-production-lab` and `k8s-gitops`, forever.** It is never merged
-to `main`. `main` stays exactly what it is today — the clean,
-recruiter-facing state of the lab. You never need to think about
-merging, rebasing onto `main`, or keeping the two in sync. Just work
-on `feature/argocd` in both repos, always.
+> **Superseded by ADR-037 (2026-10-22).** The original policy here was
+> that this path lived on `feature/argocd` forever, never merged, so
+> `main` stayed a clean showcase. That is no longer the rule: **`main`
+> is the single source of truth** and holds the most up-to-date state
+> of the lab, including study material. Feature branches are short-lived
+> and get merged back.
 
-The one file this affects mechanically:
-`kubernetes/manifests/argocd/apps/root-app.yaml` has
-`targetRevision: feature/argocd` (not `main`) for exactly this reason
-— it's already set correctly, nothing to change.
+What that means for this path:
+
+- Work from `main` in `k8s-production-lab`. `feature/argocd` is
+  historical, already merged (PR #1).
+- `kubernetes/manifests/argocd/apps/root-app.yaml` points at **this
+  repo**, `targetRevision: main`, `path: gitops/apps/root`, not at
+  `k8s-gitops`.
+- The separate `k8s-gitops` repo that the tier files below refer to was
+  never used. Wherever a tier says `~/k8s-gitops/<path>`, read
+  `~/k8slab/gitops/<path>`.
 
 ## How this path is organized
 
@@ -65,15 +71,13 @@ together, not a sign something's wrong with you.
 cd ~/k8slab
 export KUBECONFIG=~/k8slab/kubernetes/admin.conf
 kubectl get nodes                     # cluster up?
-git checkout feature/argocd           # both repos
-cd ~/k8s-gitops && git checkout feature/argocd
+git checkout main && git pull         # one repo, one branch (ADR-037)
 ```
 
-If the cluster isn't up: `./scripts/lab-management.sh rebuild --force`,
-then `bash scripts/pipeline/main.sh` and choose **ArgoCD** at the
-prompt (RAM budget only fits one of Rancher/ArgoCD/Observability at a
-time — some modules below call out when you need a different one
-running instead, and how to work around that).
+If the cluster isn't up: `bash scripts/pipeline/main.sh` (it builds the
+VMs itself; if old VMs exist, `./scripts/lab-management.sh destroy
+--force` first). Choose **ArgoCD** at the application prompt, or
+**ArgoCD + Observability** on the 1-worker topology (ADR-035/036).
 
 Access ArgoCD itself with `./scripts/tunnels/argocd-tunnel.sh`, then
 `https://localhost:8444/`.

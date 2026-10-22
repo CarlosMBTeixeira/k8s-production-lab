@@ -2380,3 +2380,284 @@ every ServiceMonitor target reached `up`, including the CoreDNS fix.
   (docs.tigera.io/calico/latest/network-policy/)
 - CIS Kubernetes Benchmark — kubelet API exposure guidance
 - NSA/CISA Kubernetes Hardening Guide
+
+---
+
+## ADR-035: Consolidate to one 8 GB worker so ArgoCD and the observability stack coexist
+
+**Date:** 2026-09-20
+**Status:** Accepted
+
+**Context:**
+The next block of study work — reconciling Grafana dashboards and
+alerting rules through ArgoCD instead of a push pipeline, and installing
+`kube-prometheus-stack` as an ArgoCD `Application` rather than by hand —
+requires ArgoCD and the observability stack to be **running at the same
+time**. ADR-031 established that they don't, and `scripts/pipeline/main.sh`
+enforced it by making the operator pick exactly one application per run.
+
+The arithmetic behind that restriction is narrower than "the host is out
+of RAM". The WSL2 budget is ~19 GB and the four VMs took 16 GB of it, but
+what actually constrains pod scheduling is not the 16 GB — it is the
+**worker** share of it. The control planes carry kubeadm's default
+`node-role.kubernetes.io/control-plane:NoSchedule` taint and nothing in
+this repo removes it, so every application pod lands on a worker. Real
+schedulable capacity was therefore 2 × 4 GB = 8 GB, minus each guest's own
+kernel, kubelet, containerd, Calico and node-exporter overhead (~0.8–1 GB
+per node), split across two nodes that the scheduler cannot pool.
+
+Measured footprints from ADR-031/ADR-032 and the chart values in
+`kubernetes/manifests/observability/`: Prometheus 1 Gi limit, Grafana
+256 Mi, Alertmanager 128 Mi, Loki 256 Mi, plus Alloy and node-exporter as
+DaemonSets and kube-state-metrics. ArgoCD adds roughly 1–1.5 Gi across
+its controller, repo-server, Redis, applicationset-controller and server.
+The total is ~3.5 Gi — comfortably inside 8 GB **in one node**, and a
+coin-flip across two 4 GB nodes once per-node overhead and the
+scheduler's inability to split a pod are accounted for.
+
+**Decision:**
+Remove `worker-2` and give `worker-1` the 4 GB it held. Topology becomes
+2 control planes (4 GB each) + 1 worker (8 GB) — the same 16 GB host
+footprint as before, one fewer guest OS to pay for, and all schedulable
+memory in a single node the scheduler can actually fill.
+
+`scripts/lab-management.sh` grows a `VM_RESOURCES` map so the worker's
+8 GB is declared in one place rather than being a magic argument at the
+call site; every VM not listed keeps `launch-node.sh`'s 2 CPU / 4 G /
+20 G defaults. `scripts/pipeline/main.sh` gains a fourth choice,
+**ArgoCD + Observability**, which sources `06_argocd.sh` and then
+`07_observability.sh` — ArgoCD first, so the observability stack can
+later be handed over to it as an `Application` without reinstalling
+anything. Rancher remains a solo install; it is the heaviest of the three
+and is not what this study block needs.
+
+Follow-on edits for the same reason: `sync-ssh-config.sh`,
+`fix-vm-clocks.sh`, `morning-check.sh`, `02_kubeadm_join.sh` and
+`ansible/inventory/hosts.ini` all drop `w-2`.
+
+**Rejected alternatives:**
+- **Delete `worker-2` and hand the 4 GB back to the WSL2 host.** The
+  obvious reading of "free 4 GB", and wrong: host RAM is not what pods
+  are scheduled against. It would have *halved* schedulable capacity to
+  4 GB and made the coexistence problem strictly worse. The freed memory
+  has to go back into the surviving worker for the change to mean
+  anything. Recorded here because it is the mistake the framing invites.
+- **Keep 2 + 2 and shrink resource requests further.** Prometheus is
+  already at a 1 Gi limit with 24 h retention; cutting deeper trades a
+  scheduling problem for an OOMKill problem, and debugging evicted pods
+  mid-exercise defeats the point of the exercises.
+- **Raise the WSL2 allocation past 20 GB.** 24 GB host, Windows needs its
+  share; pushing to 21–22 GB moves the pressure onto the host and risks
+  swapping during sessions, which is how the clock-drift failures in
+  ADR-031/`fix-vm-clocks.sh` started.
+- **Untaint the control planes instead.** Would unlock 8 GB more capacity
+  without touching the topology, but it stops the lab resembling any real
+  cluster, puts application workloads next to etcd, and undermines the
+  HA control-plane work in ADR-025.
+
+**Trade-offs accepted:**
+- **No multi-worker scheduling behaviour left to observe.** Pod
+  anti-affinity, `topologySpreadConstraints`, DaemonSet spread across
+  workers, and draining one worker to watch workloads move all stop being
+  demonstrable. The DaemonSet count drops from 4 to 3 (2 control planes +
+  1 worker), which also removes the specific failure mode noted in
+  ADR-032 ("only 2 of 4 nodes got an Alloy pod").
+- **Worker-level HA is gone.** `worker-1` is now a single point of failure
+  for every workload. The *control plane* stays HA (kube-vip + 2 nodes,
+  ADR-025) — which is the half this lab was built to exercise — but any
+  node-failure drill now has to target a control plane, not a worker.
+- **Reversible, and cheaply.** Re-adding `worker-2` is: put it back in the
+  five lists named above, set `worker-1` back to `"2 4G 20G"` in
+  `VM_RESOURCES`, rebuild. The lab is destroyed and rebuilt every session
+  anyway, so there is no migration to perform.
+- **Verified 2026-09-20.** Built, and both stacks installed together on
+  one 8 GB worker. Measured: `worker-1` capacity `8126724Ki`, allocation
+  **2930Mi requests / 3Gi limits — 37% of the node**, every pod Running,
+  nothing Pending or OOMKilled. The estimate in this ADR was ~3.5 Gi, so
+  the real figure leaves more headroom than predicted. For contrast, the
+  2×4 GB layout measured 608Mi and 832Mi of requests already committed
+  per worker with ArgoCD alone, before any of the observability stack.
+
+**References:**
+- ADR-025 — HA control plane (why the control planes stay as they are)
+- ADR-031 — observability stack sizing and the one-app-at-a-time rule this supersedes
+- ADR-032 — Loki + Alloy, including the DaemonSet-coverage note
+- Kubernetes docs — Taints and Tolerations (the default control-plane taint)
+
+---
+
+## ADR-036: Node topology as a runtime variable, not a branch difference
+
+**Date:** 2026-09-20
+**Status:** Accepted (supersedes the fixed topology in ADR-035)
+
+**Context:**
+ADR-035 consolidated the lab to one 8 GB worker so ArgoCD and the
+observability stack could coexist, and noted the change was "reversible,
+and cheaply" — put `worker-2` back in five lists and rebuild. In practice
+that reversal lived on `main`, and the 3-node layout on
+`feature/argo-and-observability-study`. Choosing a topology meant checking
+out a branch. (That branch was later merged and retired; `main` is now the
+only source of truth. See ADR-037.)
+
+That is the wrong axis. The two layouts answer different questions and
+both remain useful indefinitely:
+
+| | 1 worker (8 GB) | 2 workers (4 GB each) |
+|---|---|---|
+| ArgoCD + observability together | yes | unreliable |
+| Pod anti-affinity, `topologySpreadConstraints` | no | yes |
+| Drain a worker, watch pods move | no | yes |
+| DaemonSet spread across workers | no | yes |
+| Worker-level HA | no | yes |
+
+Encoding that in branches means the choice is entangled with unrelated
+content — `main` has no workbook, the study branch has no second worker —
+and switching costs a checkout plus a rebuild rather than a rebuild alone.
+
+**Decision:**
+Add `scripts/lab-config.sh` as the single source of truth for topology,
+sourced by every script that needs to know which VMs exist. Worker count
+resolves in this order: `LAB_WORKERS` in the environment, then
+`.lab-topology` in the repo root, then a default of 1.
+
+The **worker RAM budget stays fixed at 8 GB total** and is divided evenly.
+1×8 G and 2×4 G cost the WSL2 host identically, so switching never changes
+the host's memory arithmetic — only whether the scheduler sees one pool or
+two. That is the whole difference ADR-035 was about, now expressible
+without editing anything.
+
+`lab-management.sh` and `main.sh` prompt for the topology when it is not
+already set, and the prompt says when to pick which — the workbook wants
+1, scheduling practice wants 2. `LAB_WORKERS=2 bash scripts/pipeline/main.sh`
+skips the prompt, keeping automation non-interactive. `main.sh` additionally
+warns and asks for confirmation before installing ArgoCD + observability on
+a 2-worker lab.
+
+The persisted `.lab-topology` (gitignored) is what makes this safe rather
+than merely convenient: `morning-check.sh` and `fix-vm-clocks.sh` run in
+shells that never saw the env var, and checking for a worker that was never
+built reports a false failure on every run. `lab-management.sh` writes the
+file on build and clears it on destroy, so those scripts describe reality.
+
+**Ansible is the awkward part, and the awkwardness is recorded on purpose.**
+An INI inventory cannot include a host conditionally, so
+`ansible/inventory/hosts.ini` lists *every worker the lab can have* and the
+pipeline passes `--limit "$(lab_ansible_limit)"` to every play — the
+limit being `controlplane:w-1` at one worker and `k8s_cluster` at two.
+Consequence worth knowing: running a playbook by hand without that limit on
+a 1-worker lab fails on `w-2` as unreachable. That is expected, not a bug.
+
+**Rejected alternatives:**
+- **Split the inventory across a directory** (`00-hosts.ini` +
+  a generated `10-workers.ini`). Tested and it does not work: Ansible
+  parses each INI file independently, so `[k8s_cluster:children]`
+  referencing a `workers` group defined in a sibling file fails with
+  *"includes undefined group 'workers'"*. Recorded because it is the
+  obvious first idea.
+- **Generate `hosts.ini` from a template**, gitignoring the rendered file
+  (the `cloud-init/node.yaml` + `.rendered/` pattern). Workable, and
+  rejected for cost: it untracks a file whose comments are documentation,
+  and makes a missing render a confusing Ansible error. `--limit` is
+  idiomatic Ansible and changes nothing structural.
+- **Keep it a branch difference.** The status quo. Fails the moment you
+  want the workbook *and* two workers, which is a normal thing to want.
+- **Make the memory budget a variable too.** Deliberately not done. A
+  fixed 8 GB worker budget is what keeps the host arithmetic identical
+  across topologies; making it configurable invites a combination that
+  silently swaps the host, which is how the ADR-031 clock-drift failures
+  began.
+
+**Trade-offs accepted:**
+- Nine files now source `lab-config.sh`. A syntax error there breaks the
+  whole pipeline instead of one script — mitigated by it containing no
+  side effects, only definitions.
+- `.lab-topology` is untracked state that the scripts trust. If it
+  disagrees with reality (edited by hand, or VMs destroyed with
+  `multipass delete` rather than `lab-management.sh destroy`),
+  `morning-check.sh` reports confidently wrong results. The header line it
+  now prints — topology plus where the number came from — exists so that
+  disagreement is visible in the first three lines of output.
+- Switching topology still requires a full rebuild. Nothing here migrates
+  a running cluster, and nothing should: the lab is destroyed and rebuilt
+  every session by design.
+- **Verified end to end 2026-09-20**, in both directions against live
+  Multipass:
+
+  | | 2 workers | 1 worker |
+  |---|---|---|
+  | `.lab-topology` | `2` | `1` (cleared by destroy, rewritten on build) |
+  | Worker capacity | `4004104Ki` each | `8126724Ki` |
+  | `lab_ansible_limit()` | `k8s_cluster` → 4 hosts | `controlplane:w-1` → 3 hosts |
+  | DaemonSets | `DESIRED 4` | `DESIRED 3` |
+  | Stale `w-2` in `~/.ssh/config` after switching down | — | none |
+  | Application installed | ArgoCD (7/7) | ArgoCD + observability (19/19) |
+
+  `morning-check.sh` reported the correct topology from `.lab-topology` in
+  both cases, from shells that never saw `LAB_WORKERS` — the false-failure
+  case the state file exists to prevent.
+
+  The documented no-limit failure was reproduced deliberately: `ansible
+  all -m ping` without `--limit` on the 1-worker lab returns `w-2 |
+  UNREACHABLE!` and the other three `SUCCESS`. Expected behaviour, now
+  observed rather than asserted.
+
+**References:**
+- ADR-035 — the consolidation this makes configurable
+- ADR-031 — the RAM budget and the clock-drift failures that pressure invites
+- Ansible docs — patterns and `--limit`
+
+---
+
+## ADR-037: `main` is the single source of truth; feature branches merge back
+
+**Date:** 2026-10-22
+**Status:** Accepted (supersedes the branch policy in `docs/argocd-learning-path/00-index.md`)
+
+**Context:**
+Two branch rules had accumulated. `docs/argocd-learning-path/00-index.md`
+said study work lives on `feature/argocd` forever and is never merged, so
+`main` stays a clean, recruiter-facing showcase. The root Application then
+pinned `targetRevision` to whichever feature branch was current. In
+practice:
+
+- PR #1 merged `feature/argocd` into `main` anyway, so the rule already
+  did not hold.
+- `feature/argo-and-observability-study` collected fixes that `main` needs
+  to build at all on current Multipass (kube-vip interface from facts
+  instead of `ens3`, `sync-ssh-config.sh` reading the Ipv4 column by
+  header, the Gateway TLS self-heal), plus ADR-035/036.
+- The branch did its job. ArgoCD and the full observability stack were
+  verified running together on the 1-worker topology on 2026-09-20
+  (ADR-035/036), with tunnels for Prometheus, Loki and Alloy.
+- A root Application that tracks a feature branch breaks as soon as that
+  branch is deleted after merge.
+
+**Decision:**
+- `main` holds the most up-to-date state of the lab: infrastructure,
+  `gitops/` desired state, ADRs, and study material
+  (`observability_workbook/`, `docs/argocd-learning-path/`).
+- Every Application and ApplicationSet that points at this repo uses
+  `targetRevision: main` (`revision: main` for the git generator). That
+  includes the root App-of-Apps and the examples in the workbook.
+- Feature branches are short-lived, opened for a change and merged back by
+  PR. Nothing in `gitops/` is live until it reaches `main`.
+
+**Rejected alternatives:**
+- **Keep study branches permanent and unmerged.** This is what produced a
+  `main` that no longer builds, and two topologies split across branches
+  (the problem ADR-036 had to undo).
+- **Cherry-pick only the infrastructure fixes into `main`.** That keeps
+  the showcase clean, but it brings back the drift: every later fix has
+  to be ported twice, and ADR-035/036 reference the workbook.
+
+**Trade-offs accepted:**
+- `main` now contains study notes, not just a polished lab. The README's
+  GitOps section says so.
+- Pushing to `main` is now a deploy for anything under `gitops/`, because
+  ArgoCD reconciles it. That is the GitOps model working as intended, and
+  the reason feature branches exist.
+
+**References:**
+- ADR-035, ADR-036 — the work this merge carries into `main`
+- Argo CD User Guide → "Tracking and Deployment Strategies" (`targetRevision`)

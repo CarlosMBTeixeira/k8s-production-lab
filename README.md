@@ -11,13 +11,13 @@ problems along the way:
   /targets page, not just "kubectl apply and hope"
 - GitOps via ArgoCD with auto-sync, self-heal, and a rollback path
   actually tested against live drift
-- 34 architecture decisions documented as ADRs -- context, rejected
+- 36 architecture decisions documented as ADRs -- context, rejected
   alternatives, and trade-offs, not just what was installed
 
 ## Stack
 - **Host:** HP OMEN 16-ap0xxx (Ryzen 9 8940HX, 24 GB RAM, Windows 11 Home)
 - **Virtualization:** WSL2 (Ubuntu 24.04) with nested KVM → Multipass VMs
-- **Cluster:** 4 nodes (2 control plane + 2 workers), kubeadm-based HA, Kubernetes 1.35
+- **Cluster:** kubeadm-based HA, Kubernetes 1.35 — 2 control planes plus **1 or 2 workers**, chosen at build time (ADR-036)
 - **Networking:** Calico (CNI), Gateway API via Envoy Gateway + MetalLB (LoadBalancer/ingress,
   replacing ingress-nginx after its 2026-03-31 EOL), Kubernetes NetworkPolicy
   for default-deny network segmentation (ADR-034)
@@ -27,10 +27,13 @@ problems along the way:
   (log aggregation, ADR-032), cert-manager (real TLS via Let's Encrypt +
   Cloudflare DNS-01, ADR-033)
 - **Tooling:** Ansible (provisioning), Helm
-- **RAM constraint:** the host only comfortably runs one application
-  (Rancher, ArgoCD, or the observability stack) at a time until more RAM
-  is added later this year (ADR-031) — `main.sh` prompts for which one
-  to install each run
+- **RAM constraint:** the host's ~19 GB WSL2 budget doesn't fit every
+  application at once (ADR-031). The worker budget is fixed at 8 GB and
+  split by topology: **one 8 GB worker** holds ArgoCD *and* the
+  observability stack together (ADR-035), **two 4 GB workers** don't but
+  make multi-node scheduling observable. Either way the host pays the
+  same. `main.sh` prompts for both the topology and the application, and
+  warns if the pair can't fit. Rancher always runs alone.
 - **Deferred to CKS study:** External Secrets Operator, Pod Security
   Standards, and RBAC -- deliberately out of scope for this v1 (see Roadmap)
 
@@ -40,11 +43,16 @@ problems along the way:
 Windows 11 Home
 └── WSL2 Ubuntu 24.04 (20 GB RAM, nested virt)
     └── Multipass (KVM backend)
-        ├── cp1   (4 GB, 2 vCPU) — control plane
-        ├── cp2   (4 GB, 2 vCPU) — control plane
-        ├── w1    (4 GB, 2 vCPU) — worker
-        └── w2    (4 GB, 2 vCPU) — worker
+        ├── cp1   (4 GB, 2 vCPU) — control plane  (tainted NoSchedule)
+        ├── cp2   (4 GB, 2 vCPU) — control plane  (tainted NoSchedule)
+        └── w1    (8 GB, 2 vCPU) — worker         (every workload lands here)
+            # or, with LAB_WORKERS=2:
+            #   w1  (4 GB, 2 vCPU) + w2 (4 GB, 2 vCPU)
 ```
+
+16 GB either way — the worker budget is fixed and only its division
+changes (ADR-035, ADR-036). One worker puts all schedulable memory in a
+single node; two make scheduling behaviour observable.
 
 ## Running the lab
 
@@ -52,23 +60,37 @@ The lab is destroyed and rebuilt from scratch every session — nothing is
 left running between uses.
 
 ```bash
-# 1. Build/rebuild the 4 VMs, fix WSL2/Docker networking, sync SSH config,
-#    run a health check. Safe to run repeatedly.
-./scripts/lab-management.sh rebuild --force
-
-# 2. Provision Kubernetes + Gateway API/MetalLB, then pick ONE application
-#    to install (Rancher / ArgoCD / Observability) — the RAM budget
-#    doesn't comfortably fit more than one at once (ADR-031).
+# One command does everything: main.sh prompts for the topology (1 or 2
+# workers, with guidance on which to pick), then its first stage launches
+# the VMs
+# itself (01_initial_cluster_setup.sh calls lab-management.sh build), then
+# provisions Kubernetes + Gateway API/MetalLB + cert-manager, then prompts
+# for what to install: Rancher alone, ArgoCD alone, Observability alone,
+# or ArgoCD + Observability together (ADR-031, ADR-035).
 bash scripts/pipeline/main.sh
+
+# Skip the topology prompt (useful for automation):
+LAB_WORKERS=2 bash scripts/pipeline/main.sh
+
+# Do NOT build the VMs first and then run main.sh -- `lab-management.sh
+# build` refuses when lab VMs already exist, and main.sh runs under
+# `set -e`, so it aborts at step 1/7. Use lab-management.sh on its own
+# only to destroy, or to rebuild VMs without reprovisioning:
+./scripts/lab-management.sh destroy --force
+./scripts/lab-management.sh rebuild --force
 ```
 
 ### Accessing lab UIs from Windows
 
 Two options, both documented in ADR-029:
 
-- **SSH tunnel (always works, no setup):**
-  `./scripts/tunnels/rancher-tunnel.sh` / `argocd-tunnel.sh` / `grafana-tunnel.sh`,
-  then browse to `https://localhost:<port>/`.
+- **SSH tunnel (always works, no setup):** `./scripts/tunnels/` holds one
+  per target — `rancher-tunnel.sh` (8443), `argocd-tunnel.sh` (8444) and
+  `grafana-tunnel.sh` (8445) forward to a Gateway on :443;
+  `prometheus-tunnel.sh` (9090), `loki-tunnel.sh` (3100) and
+  `alloy-tunnel.sh` (12345) forward to a Service ClusterIP, since
+  kube-prometheus-stack and Loki expose no Gateway of their own.
+  Override the local port with `LOCAL_PORT=`.
 - **Direct IP access (faster, needs one setup step per Windows session):**
   run `scripts/windows/setup-route.ps1` once from an elevated PowerShell
   after each Windows/PC restart (it self-elevates and figures out the
@@ -90,12 +112,22 @@ bash scripts/morning-check.sh
 Run automatically at the end of `lab-management.sh build`/`rebuild`, or
 standalone any time to check current state.
 
-## GitOps repo
+## GitOps
 
-Kubernetes manifests deployed through ArgoCD live in a separate repo,
-[k8s-gitops](https://github.com/CarlosMBTeixeira/k8s-gitops) — kept apart
-from this repo on purpose (infra-as-code vs. desired state), matching the
-author's day-job GitOps setup.
+Desired state deployed through ArgoCD lives in `gitops/` in this repo,
+adopted by the App-of-Apps root at
+`kubernetes/manifests/argocd/apps/root-app.yaml` — the only Application
+ever applied by hand. See `gitops/README.md` for the layout.
+
+A separate `k8s-gitops` repo is referenced by `docs/argocd-learning-path/`
+as the intended split of infra-as-code from desired state. It was never
+used, and the current work keeps both in this repo instead: one clone,
+one branch. The split remains the right call on a real platform team.
+
+`main` is the single source of truth (ADR-037): it holds the latest state
+of the lab, and the root Application tracks `targetRevision: main`.
+Feature branches are short-lived and merged back. Nothing in `gitops/`
+is live until it reaches `main`.
 
 ## Roadmap
 
@@ -114,11 +146,11 @@ suited to dedicated CKS study than added here just to fill a checklist.
 
 ## Status
 - [x] WSL2 + Multipass + KVM foundation validated
-- [x] 4 VMs provisioned with Ansible-ready setup
+- [x] VMs provisioned with Ansible-ready setup
 - [x] Ansible essentials and node prerequisites
 - [x] containerd installed and configured
 - [x] kubeadm/kubelet/kubectl ready for cluster bootstrap
-- [x] kubeadm HA control plane bootstrapped and validated (kube-vip VIP, 2 control planes + 2 workers, Calico CNI)
+- [x] kubeadm HA control plane bootstrapped and validated (kube-vip VIP, 2 control planes + workers, Calico CNI)
 - [x] Gateway API + MetalLB smoke test, replacing nginx+NodePort (ingress-nginx EOL 2026-03-31)
 - [x] CKA exam preparation completed, exam passed
 - [x] Cluster rebuilt from scratch on Kubernetes 1.35 (ADR-025)
@@ -131,6 +163,7 @@ suited to dedicated CKS study than added here just to fill a checklist.
 - [x] Loki + Grafana Alloy installed for log aggregation, wired into the existing Grafana via `additionalDataSources` (ADR-032); replaces Promtail, which reached EOL 2026-03-02
 - [x] cert-manager installed as unconditional cluster infra, with a `letsencrypt-k8slab` ClusterIssuer for Let's Encrypt via Cloudflare DNS-01 (ADR-033); validated end-to-end with a real issued certificate
 - [x] Network Policies applied to the monitoring namespace (default-deny + 12 explicit allows, ADR-034); validated against Prometheus's own /targets page, not just pod status
+- [x] Node topology consolidated to 2 control planes + one 8 GB worker (ADR-035), so ArgoCD and the full observability stack run together — the prerequisite for reconciling Grafana dashboards and alerts through ArgoCD instead of a push pipeline
 
 ## Known issues
 - VM guest clocks can silently drift under host CPU pressure even while
