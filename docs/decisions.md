@@ -2497,7 +2497,8 @@ observability stack could coexist, and noted the change was "reversible,
 and cheaply" — put `worker-2` back in five lists and rebuild. In practice
 that reversal lived on `main`, and the 3-node layout on
 `feature/argo-and-observability-study`. Choosing a topology meant checking
-out a branch.
+out a branch. (That branch was later merged and retired; `main` is now the
+only source of truth. See ADR-037.)
 
 That is the wrong axis. The two layouts answer different questions and
 both remain useful indefinitely:
@@ -2605,3 +2606,58 @@ a 1-worker lab fails on `w-2` as unreachable. That is expected, not a bug.
 - ADR-035 — the consolidation this makes configurable
 - ADR-031 — the RAM budget and the clock-drift failures that pressure invites
 - Ansible docs — patterns and `--limit`
+
+---
+
+## ADR-037: `main` is the single source of truth; feature branches merge back
+
+**Date:** 2026-10-22
+**Status:** Accepted (supersedes the branch policy in `docs/argocd-learning-path/00-index.md`)
+
+**Context:**
+Two branch rules had accumulated. `docs/argocd-learning-path/00-index.md`
+said study work lives on `feature/argocd` forever and is never merged, so
+`main` stays a clean, recruiter-facing showcase. The root Application then
+pinned `targetRevision` to whichever feature branch was current. In
+practice:
+
+- PR #1 merged `feature/argocd` into `main` anyway, so the rule already
+  did not hold.
+- `feature/argo-and-observability-study` collected fixes that `main` needs
+  to build at all on current Multipass (kube-vip interface from facts
+  instead of `ens3`, `sync-ssh-config.sh` reading the Ipv4 column by
+  header, the Gateway TLS self-heal), plus ADR-035/036.
+- The branch did its job. ArgoCD and the full observability stack were
+  verified running together on the 1-worker topology on 2026-09-20
+  (ADR-035/036), with tunnels for Prometheus, Loki and Alloy.
+- A root Application that tracks a feature branch breaks as soon as that
+  branch is deleted after merge.
+
+**Decision:**
+- `main` holds the most up-to-date state of the lab: infrastructure,
+  `gitops/` desired state, ADRs, and study material
+  (`observability_workbook/`, `docs/argocd-learning-path/`).
+- Every Application and ApplicationSet that points at this repo uses
+  `targetRevision: main` (`revision: main` for the git generator). That
+  includes the root App-of-Apps and the examples in the workbook.
+- Feature branches are short-lived, opened for a change and merged back by
+  PR. Nothing in `gitops/` is live until it reaches `main`.
+
+**Rejected alternatives:**
+- **Keep study branches permanent and unmerged.** This is what produced a
+  `main` that no longer builds, and two topologies split across branches
+  (the problem ADR-036 had to undo).
+- **Cherry-pick only the infrastructure fixes into `main`.** That keeps
+  the showcase clean, but it brings back the drift: every later fix has
+  to be ported twice, and ADR-035/036 reference the workbook.
+
+**Trade-offs accepted:**
+- `main` now contains study notes, not just a polished lab. The README's
+  GitOps section says so.
+- Pushing to `main` is now a deploy for anything under `gitops/`, because
+  ArgoCD reconciles it. That is the GitOps model working as intended, and
+  the reason feature branches exist.
+
+**References:**
+- ADR-035, ADR-036 — the work this merge carries into `main`
+- Argo CD User Guide → "Tracking and Deployment Strategies" (`targetRevision`)

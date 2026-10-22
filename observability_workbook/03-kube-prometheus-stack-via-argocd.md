@@ -7,7 +7,7 @@ only appear when a Helm chart is large.
 Short session. The chart is already familiar — the only new surface is
 the wrapper and what breaks at scale.
 
-**Prerequisites:** session 2 complete; `~/k8slab/gitops/` on `feature/argocd`.
+**Prerequisites:** session 2 complete; `~/k8slab/gitops/` on `main`.
 
 **Read first:** ArgoCD *User Guide* → "Helm" and "Sync Options".
 
@@ -38,7 +38,7 @@ spec:
         valueFiles:
           - $values/gitops/observability/kps-values.yaml
     - repoURL: https://github.com/CarlosMBTeixeira/k8s-production-lab.git
-      targetRevision: feature/argo-and-observability-study
+      targetRevision: main
       ref: values                      # makes $values resolvable above
   destination:
     server: https://kubernetes.default.svc

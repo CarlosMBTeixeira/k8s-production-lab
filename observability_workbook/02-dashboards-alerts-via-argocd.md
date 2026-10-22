@@ -10,7 +10,7 @@ around it.
 
 **Prerequisites**
 - `main.sh` choice **4** (ArgoCD *and* observability).
-- `~/k8slab/gitops/` cloned, on branch `feature/argocd`.
+- `~/k8slab/gitops/`, on branch `main`.
 - Both tunnels usable: ArgoCD `:8444`, Grafana `:8445`.
 
 **Read first:** ArgoCD *User Guide* → "Auto Sync" and "Diffing". Nothing
@@ -146,7 +146,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/CarlosMBTeixeira/k8s-production-lab.git
-    targetRevision: feature/argo-and-observability-study
+    targetRevision: main
     path: gitops/observability/dashboards
   destination:
     server: https://kubernetes.default.svc

@@ -3,10 +3,11 @@
 # this same repo and reaches the cluster via this Application's own sync,
 # never a direct kubectl apply.
 #
-# Source is THIS repository on feature/argo-and-observability-study:
-# desired state (gitops/) lives beside infra-as-code (scripts/, ansible/)
-# for this study block, so there is one folder and one clone. See
-# observability_workbook/README.md for why, and gitops/README.md for the layout.
+# Source is THIS repository on main (ADR-037): desired state (gitops/)
+# lives beside infra-as-code (scripts/, ansible/), so there is one folder,
+# one clone and one source of truth. Feature branches are merged back into
+# main; ArgoCD never tracks them. See observability_workbook/README.md for
+# why, and gitops/README.md for the layout.
 #
 # The separate k8s-gitops repo referenced by docs/argocd-learning-path/
 # was never used and is out of scope here.
@@ -19,7 +20,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/CarlosMBTeixeira/k8s-production-lab.git
-    targetRevision: feature/argo-and-observability-study
+    targetRevision: main
     path: gitops/apps/root
   destination:
     server: https://kubernetes.default.svc

@@ -124,6 +124,11 @@ as the intended split of infra-as-code from desired state. It was never
 used, and the current work keeps both in this repo instead: one clone,
 one branch. The split remains the right call on a real platform team.
 
+`main` is the single source of truth (ADR-037): it holds the latest state
+of the lab, and the root Application tracks `targetRevision: main`.
+Feature branches are short-lived and merged back. Nothing in `gitops/`
+is live until it reaches `main`.
+
 ## Roadmap
 
 | Month | Focus |

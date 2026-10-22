@@ -12,8 +12,9 @@ gitops/
 └── environments/overlays/  simulated dev/staging/prod             (session 5)
 ```
 
-Source of truth for ArgoCD is this repo on
-`feature/argo-and-observability-study`. A change here is live once ArgoCD
+Source of truth for ArgoCD is this repo on `main` (ADR-037). A change
+on a feature branch is **not** live until it is merged; once it is on
+`main`, it is live once ArgoCD
 polls the repo — default `timeout.reconciliation` is 180s, so allow up to
 three minutes, or force it with `argocd app sync <name>`.
 

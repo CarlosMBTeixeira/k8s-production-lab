@@ -12,7 +12,7 @@ environments, sync waves applied to a dependency that actually fails
 without them, and **External Secrets Operator** against a real secret
 store — which tier 4 explicitly declined to do.
 
-**Prerequisites:** sessions 2–3. `~/k8slab/gitops/` on `feature/argocd`.
+**Prerequisites:** sessions 2–3. `~/k8slab/gitops/` on `main`.
 
 **Read first:** ArgoCD *Operator Manual* → "ApplicationSet" → Generators
 (list, git, matrix). External Secrets Operator docs → "HashiCorp Vault"
@@ -53,7 +53,7 @@ spec:
   generators:
     - git:
         repoURL: https://github.com/CarlosMBTeixeira/k8s-production-lab.git
-        revision: feature/argo-and-observability-study
+        revision: main
         directories:
           - path: gitops/environments/overlays/*
   template:
@@ -63,7 +63,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/CarlosMBTeixeira/k8s-production-lab.git
-        targetRevision: feature/argo-and-observability-study
+        targetRevision: main
         path: '{{path}}'
       destination:
         server: https://kubernetes.default.svc
