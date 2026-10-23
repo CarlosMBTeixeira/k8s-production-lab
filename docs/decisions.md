@@ -2661,3 +2661,282 @@ practice:
 **References:**
 - ADR-035, ADR-036 — the work this merge carries into `main`
 - Argo CD User Guide → "Tracking and Deployment Strategies" (`targetRevision`)
+
+---
+
+## ADR-038: Istio (sidecar mode + istio-cni) and Kiali, reading the existing Prometheus
+
+**Date:** 2026-10-23
+**Status:** Accepted — verified on a live 1-worker cluster 2026-10-23
+
+**Context:**
+The lab has metrics (ADR-031), logs (ADR-032) and GitOps (ArgoCD), but no
+service mesh. A mesh is standard on the OpenShift platform this lab
+prepares for: OpenShift Service Mesh 3 is upstream Istio managed by the
+Sail Operator, with Kiali for visualisation. The lab cannot run OpenShift,
+but it can run the same Istio and Kiali via their Helm charts.
+
+Kiali has one hard dependency: a Prometheus-compatible query API. Every
+number on its traffic graph is a PromQL query against `istio_*` metrics.
+Istio itself needs no monitoring to work, and Grafana and tracing are
+optional for Kiali. In production a mesh is pointed at the monitoring the
+platform already runs, never at Istio's `samples/addons`, which are
+documented as demo-only. On OpenShift that existing monitoring is
+user-workload monitoring, queried through the Thanos Querier. Here it is
+kube-prometheus-stack.
+
+**Decision:**
+Add `scripts/pipeline/09_istio_kiali.sh`, same pattern as 06/07:
+
+- **Istio `1.30.7`** from `istio-release.storage.googleapis.com/charts`
+  (Artifact Hub, ADR-030): `base` → `cni` → `istiod` in `istio-system`.
+  - **Sidecar mode with istio-cni**, not ambient. Sidecar is what most
+    production OpenShift Service Mesh installs run, and Kiali covers it
+    completely. istio-cni replaces the privileged `istio-init` container;
+    it is mandatory on OpenShift, where pods cannot get `NET_ADMIN`.
+    It chains onto Calico's conflist, and the chart's path defaults
+    already match kubeadm.
+  - **istiod**: 1 replica, no HPA, **no PDB**. The chart's PDB with one
+    replica blocks `kubectl drain`, which would break the 2-worker
+    exercises (ADR-036). Requests 100m/256Mi (chart default 500m/2Gi).
+  - **Sidecars**: 10m/64Mi request, 256Mi limit (chart default 100m/128Mi,
+    1Gi limit). This is multiplied by every meshed pod.
+  - **`meshConfig.accessLogFile: /dev/stdout`**: Envoy access logs flow
+    through Alloy into Loki (ADR-032), so mesh traffic can be queried
+    with LogQL.
+- **Metrics wiring**: Istio's own PodMonitor (sidecars) and ServiceMonitor
+  (istiod) from `samples/addons/extras/prometheus-operator.yaml`,
+  relabelled `release: kube-prometheus-stack`. Our Prometheus keeps
+  `serviceMonitorSelectorNilUsesHelmValues=true` and silently ignores
+  monitors without its release label.
+- **Network Policies**: `network_policies/monitoring-istio.yaml` opens
+  Prometheus → `:15020` (any namespace) and istiod `:15014`, and Kiali →
+  Prometheus `:9090`. Applied only when `default-deny-all` exists in
+  `monitoring` (ADR-034). Otherwise the graph would be empty only on labs
+  that ran 08, with no error.
+- **Kiali `2.33.0`** (`kiali/kiali-server`; Istio 1.30 needs Kiali ≥ 2.26),
+  in `istio-system`, exposed like every lab UI: its own Envoy Gateway
+  (`eg`), self-signed cert, `scripts/tunnels/kiali-tunnel.sh` →
+  `https://localhost:8446/`.
+  - **`auth.strategy: token`** with `SA/kiali-login` bound to the chart's
+    read-only `kiali-viewer` ClusterRole. The token is short-lived and
+    printed on demand, never stored. Read-only by design: mesh config
+    changes go through git.
+  - **Grafana integration disabled.** Kiali 2.x calls Grafana's API with
+    credentials to build dashboard links, which would mean copying the
+    Grafana admin password into `istio-system`. Not worth it for links.
+  - **Tracing disabled.** There is no backend. Tempo would be the fit
+    beside Loki; Red Hat is moving OpenShift tracing from Jaeger to
+    Tempo + OpenTelemetry.
+- **Bookinfo**, applied straight from the pinned Istio tag (not vendored,
+  same as MetalLB in 03), in namespace `bookinfo` with
+  `istio-injection=enabled`, behind an Istio-class Gateway API Gateway
+  (`scripts/tunnels/bookinfo-tunnel.sh` → `http://localhost:8447/productpage`).
+  A non-injected curl loop sends ~1 req/s through the ingress gateway, so
+  the graph is never empty.
+- **Two Gateway API controllers** coexist: Envoy Gateway (`eg`, all UIs
+  including Kiali) and Istio (`istio`, mesh ingress only). Both use the
+  CRDs Envoy Gateway v1.9.2 installs (bundle `v1.6.1`, ADR-039); Istio's base
+  chart does not install Gateway API CRDs.
+- **`main.sh`** menu, regrouped into single applications / stacks /
+  add-ons, with "None" fixed at the bottom as `0`:
+  `5) Observability + Istio + Kiali` (warns on 2 workers),
+  `6) ArgoCD + Observability + Istio + Kiali` (**refuses** on 2 workers),
+  `8) Istio + Kiali` add-on (09 exits if the observability stack is missing).
+  Network Policies moved from 5 to `7`; None from 6 to `0`.
+
+**Rejected alternatives:**
+- **Ambient mode (ztunnel + waypoints).** GA and lighter per pod, but it
+  is not what most existing production meshes run. Kept as a later
+  exercise; the istio-cni install already carries the `ambient` toggle.
+- **Istio's `samples/addons` Prometheus/Grafana/Kiali.** Demo-only, and a
+  second Prometheus beside kube-prometheus-stack is exactly the
+  production anti-pattern this lab should avoid.
+- **Kiali Operator instead of `kiali-server`.** The operator is what
+  OpenShift Service Mesh uses, but it adds a controller and a CR for one
+  instance. The server chart gives the same Kiali with less to run.
+- **Expose Kiali through Istio's own ingress gateway.** It would make the
+  UI depend on the mesh it is meant to diagnose. A broken mesh would hide
+  the tool that shows it is broken.
+- **`anonymous` Kiali login.** Simpler, but it would be the only lab UI
+  without a login.
+
+**Trade-offs accepted:**
+- **RAM, measured 2026-10-23** (ArgoCD + Observability + Istio + Kiali +
+  Bookinfo, 1 worker): **4322Mi requests (55%)** and 5920Mi limits (75%)
+  of 7.65 GiB allocatable, so the mesh added **~1.4Gi of requests** over
+  ADR-035's 2930Mi, below the 1.5–2Gi estimate. Working set by namespace:
+  monitoring 1094Mi, **bookinfo 836Mi**, envoy-gateway-system 179Mi,
+  argocd 124Mi, **istio-system 122Mi** (istiod + cni + Kiali). The worker
+  had ~4.3Gi MemAvailable. CPU requests are 1300m of 2 vCPU (65%), so
+  CPU is now the tighter budget on this node, not memory.
+- **Bookinfo pods have no resource requests** upstream (BestEffort). They
+  are the first to be evicted under memory pressure, which is acceptable
+  for demo traffic.
+- **Istio 1.30 (built against Gateway API v1.5.1) on the `v1.6.1` CRD
+  bundle:** works. Observed 2026-10-23 with `GatewayClass/istio`
+  Accepted and `Gateway/bookinfo-gateway` Programmed, alongside four `eg`
+  Gateways. The script still waits for `Programmed` and fails loudly if
+  a later pairing breaks.
+- **Upstream Bookinfo is fetched at install time**, so it needs GitHub
+  reachable from the WSL2 host (already true for 03).
+
+**Verified 2026-10-23** (option 6 / old option 9, 1 worker): every
+Bookinfo pod 2/2 with `istio-proxy`, including a fresh rollout after the
+istio-cni fix (ADR-040); Prometheus scraping 7 sidecar targets plus
+istiod; Kiali token login 200, unauthenticated 401, and the Bookinfo
+graph showing 8 nodes / 7 edges, all mTLS, with live rates; Envoy access
+logs in Loki (`{namespace="bookinfo", container="istio-proxy"}`, ~2.4k
+lines per 5 minutes from the traffic generator).
+
+**Found on that run:** the Prometheus 3.x image has no `wget` or `curl`,
+so 09's metrics check (`kubectl exec … wget`) could never succeed and
+always printed its warning. It now queries through the API server's
+service proxy (`kubectl get --raw …/services/…:http-web/proxy/…`).
+
+**References:**
+- Istio — Install with Helm; Install the Sidecar with Istio CNI;
+  Prometheus Operator integration (`samples/addons/extras`)
+- Kiali — Installation guide → Prerequisites (Istio/Kiali compatibility);
+  Configuration → Authentication strategies (token)
+- Red Hat — OpenShift Service Mesh 3 docs (Sail Operator, Kiali,
+  user-workload monitoring)
+
+---
+
+## ADR-039: Version refresh to latest stable (2026-10-23)
+
+**Date:** 2026-10-23
+**Status:** Accepted — verified on a live 1-worker cluster 2026-10-23
+(every release deployed at the new version, all nodes Ready, Gateway API
+smoke test passed, Istio on the v1.6.1 bundle works; see ADR-038)
+
+**Context:**
+Pins had drifted for three months. Calico was the worst case:
+`v3.28.2` is tested by Tigera only against Kubernetes 1.27–1.30, and the
+lab runs 1.35 (ADR-025). It worked, but outside anything upstream tests.
+
+**Decision:**
+Every pinned chart and manifest moves to its latest stable release:
+
+| Component | From | To | Jump |
+|---|---|---|---|
+| kube-vip (static pod) | v0.8.7 | v1.3.1 | **major** |
+| kube-prometheus-stack | 87.17.0 | 92.11.0 | **major ×5** |
+| Loki (grafana-community) | 18.4.4 | 19.1.1 | **major** |
+| Calico (manifest) | v3.28.2 | v3.33.0 | minor ×5 |
+| Envoy Gateway | v1.8.2 | v1.9.2 | minor |
+| argo-cd chart | 10.1.4 | 10.11.0 | minor (Argo CD 3.4 → 3.5) |
+| Rancher | 2.14.3 | 2.15.2 | minor |
+| Alloy chart | 1.10.0 | 1.14.3 | minor (Alloy 1.17 → 1.21) |
+| cert-manager | v1.21.0 | v1.21.2 | patch |
+| curl (traffic generator) | 8.11.1 | 8.23.0 | minor |
+
+Already latest: MetalLB v0.16.1, Istio 1.30.7, Kiali 2.33.0. Kubernetes
+itself (1.35.6, latest patch 1.35.9) and crictl are package pins under
+ADR-015/ADR-025, not part of this refresh.
+
+**What each major needed:**
+- **kube-vip 1.x** removed `vip_cidr`. An unknown env var is silently
+  ignored, so the template now sets `vip_subnet: "32"` (same format;
+  with `address` set, 1.3.1 would also default to 32). Every other env
+  var the template uses and the `manager` subcommand are unchanged in
+  v1.3.1's `config_envvar.go`. The 1.3.0 breaking change (shared VIPs
+  restricted to same-lease Services) applies to `svc_enable`, which is
+  off here.
+- **kube-prometheus-stack 88–92**: Prometheus Operator v0.93→v0.94,
+  Grafana chart v13, control-plane ServiceMonitors moved from
+  `bearerTokenFile` to a chart-created token Secret, and a
+  `kubernetes.io/os: linux` nodeSelector. None of the removed values are
+  used in `observability/values.yaml`. A render with it keeps retention,
+  resources, the Loki datasource and the disabled control-plane
+  monitors. Service and Prometheus names are unchanged, which 09's
+  verify step and Kiali's URL depend on.
+- **Loki 19**: the only breaking change is that headless Services no
+  longer inherit service labels and annotations. A render with
+  `loki-values.yaml` differs from 18.4.4 only in image tags.
+
+**Verified offline:** charts rendered with the lab values; the Alloy
+config passes `alloy validate` on v1.21.2 (a broken config fails, as a
+negative control); Calico v3.33.0 still names `calico-node` and
+`calico-kube-controllers` in `kube-system` and still writes
+`10-calico.conflist`, which istio-cni chains onto (ADR-038); Envoy
+Gateway v1.9.2's quickstart has the same six resources 03 applies by
+filename.
+
+**Trade-offs accepted:**
+- **Gateway API CRDs move from bundle `v1.5.0-dev` to `v1.6.1`** with
+  Envoy Gateway 1.9.2. Istio 1.30.7 is built against v1.5.1. Newer
+  standard-channel CRDs are normally backward compatible, but this
+  pairing has not been observed. 09 fails at the Bookinfo Gateway's
+  `Programmed` wait if it breaks.
+- **argo-cd 10.11.0 and alloy 1.14.3 were published the day of this
+  refresh.** If either misbehaves, the previous patch (`10.10.5`,
+  `1.14.2`) is the first thing to try.
+- Calico, kube-vip and Envoy Gateway affect every topology and every
+  application. The first rebuild after this ADR validates the base
+  cluster before any application is installed.
+
+**References:**
+- Tigera — Calico requirements (v3.28, v3.33)
+- kube-vip releases v1.0.0–v1.3.1; `pkg/kubevip/config_envvar.go` at v1.3.1
+- kube-prometheus-stack `UPGRADE.md` (87.x → 92.x)
+- grafana-community/helm-charts Loki README ("From 18.x to 19.0.0")
+
+---
+
+## ADR-040: Raise inotify limits on every node
+
+**Date:** 2026-10-23
+**Status:** Accepted — applied live 2026-10-23; Ansible change takes effect on next rebuild
+
+**Context:**
+On the first ArgoCD + Observability + Istio + Kiali install (ADR-038),
+`istio-cni-node` on worker-1 crash-looped:
+
+```
+installer failed: create CNI config file: watcher create:
+couldn't initialize inotify: too many open files
+```
+
+The pods on the two control planes were fine. On worker-1, root held
+exactly **128 of 128** inotify instances (`fs.inotify.max_user_instances`,
+Ubuntu's default); cp-1 was at 114. The limit is per user, and on a
+Kubernetes node almost everything is root: kubelet, containerd, and
+every pod that watches files (Alloy, the Grafana and Loki config
+sidecars, Envoy Gateway, istio-cni). Each new stack on the single worker
+added watchers until the next one could not get any.
+
+Not a cosmetic failure. When the agent exits it removes its CNI binary
+and config, so a new injected pod on that node would get no traffic
+redirection and fail its `istio-validation` init container. That
+breaks every rollout, canary and drain exercise the mesh exists for.
+
+**Decision:**
+Add to `kernel_prereqs_sysctls` (role `kernel-prereqs`, persisted in
+`/etc/sysctl.d/k8s.conf` and checked by the role's verify task):
+
+- `fs.inotify.max_user_instances = 8192`
+- `fs.inotify.max_user_watches = 524288`
+
+These are the values Kubernetes distros and kind commonly recommend.
+Applies to every node in both topologies; it costs only kernel memory
+that is actually used.
+
+The running lab was fixed by hand with the same values (`sysctl -w` plus
+`/etc/sysctl.d/k8s-inotify.conf`), then the failing pod was deleted. All
+three `istio-cni-node` pods came up, and a fresh `details-v1` rollout on
+worker-1 came up 2/2 in the mesh.
+
+**Rejected alternatives:**
+- **Only raise it when Istio is installed** (from `09`). The limit was
+  already at 128/128 because of everything else on the node; Istio was
+  just the first thing to need one more. Any later stack would hit it.
+- **Spread pods across two workers.** Halves the pressure per node but
+  does not fix the default, and the workbook needs the 1-worker topology
+  (ADR-035).
+
+**References:**
+- Linux `inotify(7)` — `/proc/sys/fs/inotify/max_user_instances`
+- Istio — Install the Sidecar with Istio CNI (node agent behaviour)
+- `observability_workbook/runbooks/mesh-istio-kiali-install.md`

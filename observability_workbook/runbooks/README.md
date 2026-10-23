@@ -15,6 +15,7 @@ platform that is not this one.
 | 04 | Recording and alerting rules as a CRD | ☐ |
 | 05 | ApplicationSets, sync waves, External Secrets | ☐ |
 | 06 | OpenShift monitoring and logging | ☐ |
+| — | [Istio + Kiali install](mesh-istio-kiali-install.md) (outside the session sequence) | ☑ 2026-10-23 |
 
 Write the row while the symptom is still fresh. A runbook reconstructed a
 week later is a summary of the documentation, which is worth nothing —
