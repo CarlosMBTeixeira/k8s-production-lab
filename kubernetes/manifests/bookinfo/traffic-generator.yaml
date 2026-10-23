@@ -1,0 +1,40 @@
+# Steady ~1 req/s through the Istio ingress gateway, so Kiali's graph
+# and the istio_* metrics have something to show without a browser
+# open. Not injected: it plays the "outside client", and appears in
+# Kiali as unknown -> bookinfo-gateway-istio -> productpage -> ...
+# The upstream Bookinfo manifests are applied straight from the pinned
+# Istio tag by 09_istio_kiali.sh, not copied here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+  namespace: bookinfo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+        - name: curl
+          image: curlimages/curl:8.23.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while true; do
+                curl -s -o /dev/null -w "%{http_code}\n" \
+                  http://bookinfo-gateway-istio.bookinfo.svc.cluster.local/productpage
+                sleep 1
+              done
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 32Mi

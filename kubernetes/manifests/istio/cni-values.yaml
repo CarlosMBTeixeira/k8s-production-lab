@@ -1,0 +1,9 @@
+# istio-cni values (istio-release/cni). Sidecar mode, chained onto
+# Calico's conflist in /etc/cni/net.d (ADR-016, ADR-038). The chart's
+# cniBinDir/cniConfDir defaults already match kubeadm + Calico, so only
+# resources are overridden. Runs as a DaemonSet on every node,
+# including the tainted control planes.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
