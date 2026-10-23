@@ -19,4 +19,4 @@ polls the repo — default `timeout.reconciliation` is 180s, so allow up to
 three minutes, or force it with `argocd app sync <name>`.
 
 Sits beside the infra-as-code rather than in a separate repo. That is a
-deliberate simplification for this study block — see `observability_workbook/README.md`.
+deliberate simplification for this study block — see `workbooks/observability_workbook/README.md`.

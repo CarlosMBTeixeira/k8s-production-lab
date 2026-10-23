@@ -2636,7 +2636,7 @@ practice:
 **Decision:**
 - `main` holds the most up-to-date state of the lab: infrastructure,
   `gitops/` desired state, ADRs, and study material
-  (`observability_workbook/`, `docs/argocd-learning-path/`).
+  (`workbooks/observability_workbook/`, `docs/argocd-learning-path/`).
 - Every Application and ApplicationSet that points at this repo uses
   `targetRevision: main` (`revision: main` for the git generator). That
   includes the root App-of-Apps and the examples in the workbook.
@@ -2888,7 +2888,9 @@ filename.
 ## ADR-040: Raise inotify limits on every node
 
 **Date:** 2026-10-23
-**Status:** Accepted — applied live 2026-10-23; Ansible change takes effect on next rebuild
+**Status:** Accepted — verified from a clean rebuild 2026-10-23: all three nodes at
+8192/524288 from `/etc/sysctl.d/k8s.conf`, istio-cni 3/3 with zero restarts, and root
+on worker-1 holding **342** inotify instances — 2.7× the old limit of 128
 
 **Context:**
 On the first ArgoCD + Observability + Istio + Kiali install (ADR-038),
@@ -2939,4 +2941,4 @@ worker-1 came up 2/2 in the mesh.
 **References:**
 - Linux `inotify(7)` — `/proc/sys/fs/inotify/max_user_instances`
 - Istio — Install the Sidecar with Istio CNI (node agent behaviour)
-- `observability_workbook/runbooks/mesh-istio-kiali-install.md`
+- `workbooks/observability_workbook/runbooks/mesh-istio-kiali-install.md`

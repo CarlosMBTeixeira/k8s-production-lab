@@ -158,7 +158,7 @@ spec:
 ```
 
 It lands in `apps/root/` so the existing App-of-Apps root
-(`../kubernetes/manifests/argocd/apps/root-app.yaml`) adopts it — no
+(`../../kubernetes/manifests/argocd/apps/root-app.yaml`) adopts it — no
 `kubectl apply` of your own. That root Application is the only one ever
 applied by hand.
 
