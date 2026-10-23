@@ -13,9 +13,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 OBSERVABILITY_DIR="${REPO_ROOT}/kubernetes/manifests/observability"
-PROMETHEUS_CHART_VERSION="87.17.0"
-LOKI_CHART_VERSION="18.4.4"
-ALLOY_CHART_VERSION="1.10.0"
+PROMETHEUS_CHART_VERSION="92.11.0"
+LOKI_CHART_VERSION="19.1.1"
+ALLOY_CHART_VERSION="1.14.3"
 NAMESPACE="monitoring"
 
 section() {

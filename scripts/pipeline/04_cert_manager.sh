@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-CHART_VERSION="v1.21.0"
+CHART_VERSION="v1.21.2"
 NAMESPACE="cert-manager"
 export DOMAIN="entraid-study.uk"
 export ACME_EMAIL="cmbt1984@gmail.com"
