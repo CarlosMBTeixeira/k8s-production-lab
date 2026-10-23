@@ -2636,7 +2636,7 @@ practice:
 **Decision:**
 - `main` holds the most up-to-date state of the lab: infrastructure,
   `gitops/` desired state, ADRs, and study material
-  (`observability_workbook/`, `docs/argocd-learning-path/`).
+  (`workbooks/observability_workbook/`, `docs/argocd-learning-path/`).
 - Every Application and ApplicationSet that points at this repo uses
   `targetRevision: main` (`revision: main` for the git generator). That
   includes the root App-of-Apps and the examples in the workbook.
@@ -2939,4 +2939,4 @@ worker-1 came up 2/2 in the mesh.
 **References:**
 - Linux `inotify(7)` — `/proc/sys/fs/inotify/max_user_instances`
 - Istio — Install the Sidecar with Istio CNI (node agent behaviour)
-- `observability_workbook/runbooks/mesh-istio-kiali-install.md`
+- `workbooks/observability_workbook/runbooks/mesh-istio-kiali-install.md`

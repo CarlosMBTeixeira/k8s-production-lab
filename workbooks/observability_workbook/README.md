@@ -23,7 +23,7 @@ Everything else in this lab is already at working level. These are not.
 | 4 | **ArgoCD beyond the basics.** | ApplicationSet generators in a multi-environment scenario, and secrets end-to-end with External Secrets Operator. |
 
 **Explicitly not in scope:** ArgoCD fundamentals (done — see
-`../docs/argocd-learning-path/`), the CKS syllabus (runs separately), and
+`../../docs/argocd-learning-path/`), the CKS syllabus (runs separately), and
 any video course.
 
 ---
@@ -131,8 +131,10 @@ be `Pending` or `OOMKilled`. If something is, that is session zero, and
 ~/k8slab/                 everything for sessions 1–5
 ├── scripts/              infra-as-code — provisioning pipeline
 ├── kubernetes/           Helm values, the root Application
-├── docs/decisions.md     ADR-001…037
-├── observability_workbook/   this path, its sessions and runbooks
+├── docs/decisions.md     ADR-001…040
+├── workbooks/
+│   ├── observability_workbook/   this path, its sessions and runbooks
+│   └── istio_svc_mesh_workbook/  the service mesh block (ADR-038)
 └── gitops/               desired state — what ArgoCD syncs
 ~/openshift-local-lab/…   CRC, for session 6 only
 ```
@@ -141,7 +143,7 @@ be `Pending` or `OOMKilled`. If something is, that is session zero, and
 this repository on `main` (ADR-037). Work on a short-lived branch if you
 like, but nothing in `gitops/` is live until it is merged to `main`.
 
-The `k8s-gitops` repo mentioned in `../docs/argocd-learning-path/` has
+The `k8s-gitops` repo mentioned in `../../docs/argocd-learning-path/` has
 never been used — ignore it. Keeping
 desired state next to infra-as-code is a deliberate simplification for
 this block; on a real platform the split is worth arguing about, here it

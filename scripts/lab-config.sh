@@ -182,7 +182,7 @@ lab_choose_topology() {
 |
 |  1) ONE worker, 8G      -> 3 nodes
 |     Use for: ArgoCD + Observability together, and everything in
-|     observability_workbook/ (sessions 1-5). Both stacks are ~3.5Gi and
+|     workbooks/observability_workbook/ (sessions 1-5). Both stacks are ~3.5Gi and
 |     only fit reliably when that memory is in a single schedulable node.
 |     Gives up: multi-worker scheduling, worker-level HA.
 |

@@ -243,7 +243,7 @@ finding of this section.
 > t-shirt values (`1x.demo`, `1x.extra-small`, …) that each imply a fixed
 > topology — ingester/distributor/querier/query-frontend/compactor as
 > separate deployments, not one binary. Compare field by field with
-> `../kubernetes/manifests/observability/loki-values.yaml`.
+> `../../kubernetes/manifests/observability/loki-values.yaml`.
 >
 > **What would have caught this sooner.** `oc explain` on a CRD you have
 > not instantiated. Reading the schema is a legitimate way to learn an
