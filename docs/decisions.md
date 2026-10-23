@@ -2888,7 +2888,9 @@ filename.
 ## ADR-040: Raise inotify limits on every node
 
 **Date:** 2026-10-23
-**Status:** Accepted — applied live 2026-10-23; Ansible change takes effect on next rebuild
+**Status:** Accepted — verified from a clean rebuild 2026-10-23: all three nodes at
+8192/524288 from `/etc/sysctl.d/k8s.conf`, istio-cni 3/3 with zero restarts, and root
+on worker-1 holding **342** inotify instances — 2.7× the old limit of 128
 
 **Context:**
 On the first ArgoCD + Observability + Istio + Kiali install (ADR-038),
