@@ -107,8 +107,15 @@ echo "Repo:"
 info  "git status clean"                "cd ~/k8slab && [ -z \"\$(git status --porcelain)\" ]"
 # Being out of sync with origin IS a check: it usually means the operator
 # forgot to push or pull, and continuing risks divergent history.
-check "in sync with origin"             "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]" \
-      "run 'git push' or 'git pull' to resync (check 'git status -sb' for ahead/behind)"
+# A branch with no upstream yet (a fresh feature branch, ADR-037) has no
+# history to diverge from, so that case is informational, not a failure --
+# otherwise the first build on every new branch aborts main.sh here.
+if git -C ~/k8slab rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+    check "in sync with origin"         "cd ~/k8slab && git fetch --quiet && [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse @{u})\" ]" \
+          "run 'git push' or 'git pull' to resync (check 'git status -sb' for ahead/behind)"
+else
+    info  "branch has an upstream (not pushed yet: git push -u origin $(git -C ~/k8slab branch --show-current))" "false"
+fi
 echo ""
 
 echo "|---------------------------------------------------------------------------"

@@ -18,6 +18,15 @@ kernel_prereqs_sysctls:
   - { name: net.bridge.bridge-nf-call-iptables,  value: '1' }
   - { name: net.bridge.bridge-nf-call-ip6tables, value: '1' }
   - { name: net.ipv4.ip_forward,                 value: '1' }
+  # inotify limits (ADR-040). Ubuntu's default of 128 instances per user is
+  # shared by every root process on the node: kubelet, containerd and every
+  # pod that watches files (Alloy, Grafana/Loki sidecars, istio-cni...).
+  # worker-1 hit 128/128 with ArgoCD + observability + Istio, and
+  # istio-cni-node crash-looped on "couldn't initialize inotify: too many
+  # open files". Values are the ones Kubernetes distros commonly ship
+  # (e.g. kind, k3s guidance).
+  - { name: fs.inotify.max_user_instances,       value: '8192' }
+  - { name: fs.inotify.max_user_watches,         value: '524288' }
 
 # File paths for persistent configuration.
 kernel_prereqs_modules_file: /etc/modules-load.d/k8s.conf

@@ -1,0 +1,23 @@
+# Identity used to log in to Kiali (auth.strategy: token). Bound to the
+# read-only kiali-viewer ClusterRole the chart creates, so the UI can
+# show everything but its wizards cannot change Istio config. Mesh
+# config changes belong in git, not in a UI.
+# Token: kubectl -n istio-system create token kiali-login --duration 8h
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kiali-login
+  namespace: istio-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kiali-login-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kiali-viewer
+subjects:
+  - kind: ServiceAccount
+    name: kiali-login
+    namespace: istio-system

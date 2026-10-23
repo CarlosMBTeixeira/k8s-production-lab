@@ -1,0 +1,37 @@
+# kiali-server values (kiali/kiali-server, see KIALI_CHART_VERSION in
+# scripts/pipeline/09_istio_kiali.sh). ADR-038.
+
+auth:
+  # Log in with a Kubernetes ServiceAccount token. The script creates
+  # SA/kiali-login bound to the chart's read-only kiali-viewer
+  # ClusterRole and prints a short-lived token; nothing is stored.
+  # Same model as OpenShift, where Kiali uses the user's own identity.
+  strategy: token
+
+deployment:
+  cluster_wide_access: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 512Mi
+
+server:
+  # Serve at / so the tunnel URL is https://localhost:8446/ (the
+  # non-OpenShift default is /kiali).
+  web_root: /
+
+external_services:
+  # The only hard dependency: every number on the traffic graph is a
+  # PromQL query against istio_* metrics in this Prometheus.
+  prometheus:
+    url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+  # Kiali 2.x calls Grafana's API with credentials to build dashboard
+  # links, which would mean copying the Grafana admin password into
+  # istio-system. Not worth it for links (ADR-038).
+  grafana:
+    enabled: false
+  # No tracing backend in the lab yet (Tempo would be the fit, ADR-038).
+  tracing:
+    enabled: false

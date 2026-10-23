@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# 05_rancher.sh — Install Rancher 2.14.3, exposed via a dedicated Gateway
+# 05_rancher.sh — Install Rancher 2.15.2, exposed via a dedicated Gateway
 # API resource (Gateway/rancher + HTTPRoute/rancher, kubernetes/manifests/rancher/).
 # ----------------------------------------------------------------------------
 # See ADR-026 for why Rancher gets its own Gateway instead of reusing
@@ -22,7 +22,7 @@ KUBECONFIG_LOCAL="${REPO_ROOT}/kubernetes/admin.conf"
 
 RANCHER_NAMESPACE="cattle-system"
 RANCHER_HOSTNAME="rancher.lab"
-RANCHER_CHART_VERSION="2.14.3"
+RANCHER_CHART_VERSION="2.15.2"
 
 section() {
     echo

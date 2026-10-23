@@ -1,0 +1,60 @@
+# Add-on to monitoring.yaml (ADR-034) for the mesh (ADR-038). Applied by
+# 09_istio_kiali.sh only when default-deny-all is present in monitoring,
+# i.e. only on labs that ran 08_network_policies.sh. NetworkPolicies are
+# additive, so this only opens the two flows Kiali depends on.
+
+---
+# Prometheus -> sidecar merged metrics (:15020, any namespace) and
+# istiod's monitoring port (:15014).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape-istio-egress
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 15020
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+          podSelector:
+            matchLabels:
+              app: istiod
+      ports:
+        - port: 15014
+          protocol: TCP
+
+---
+# Kiali -> Prometheus query API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kiali-to-prometheus-ingress
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kiali
+      ports:
+        - port: 9090
+          protocol: TCP

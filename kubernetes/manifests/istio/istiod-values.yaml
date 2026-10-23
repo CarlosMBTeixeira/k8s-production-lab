@@ -1,0 +1,43 @@
+# istiod values (istio-release/istiod, see ISTIO_CHART_VERSION in
+# scripts/pipeline/09_istio_kiali.sh). Sidecar mode with istio-cni (ADR-038).
+# Everything below is a deliberate departure from the chart default.
+
+# One replica, no HPA, no PDB. The chart default is an HPA (1-5) plus a
+# PDB with minAvailable 1. With a single replica that PDB blocks
+# `kubectl drain` on the node running istiod, which breaks the
+# 2-worker drain exercises (ADR-036).
+autoscaleEnabled: false
+replicaCount: 1
+global:
+  defaultPodDisruptionBudget:
+    enabled: false
+  # Every injected sidecar. Chart default is 100m / 128Mi request and
+  # 1Gi limit per pod, which is a whole Bookinfo service's worth of
+  # memory per sidecar in a lab where workers are 4-8 GB.
+  proxy:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+# Chart default requests 500m / 2048Mi. That is sized for a real mesh;
+# here istiod watches a handful of namespaces.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+# Pod traffic redirection is done by the istio-cni node agent instead
+# of a privileged istio-init container in every pod. This is the only
+# supported mode on OpenShift, where pods cannot get NET_ADMIN.
+cni:
+  enabled: true
+
+meshConfig:
+  # Envoy access logs to stdout -> Alloy -> Loki (ADR-032). Gives every
+  # mesh request a LogQL-queryable line: {namespace="bookinfo", container="istio-proxy"}
+  accessLogFile: /dev/stdout

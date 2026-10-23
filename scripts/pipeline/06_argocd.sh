@@ -28,7 +28,7 @@ ARGOCD_DIR="${REPO_ROOT}/kubernetes/manifests/argocd"
 KUBECONFIG_LOCAL="${REPO_ROOT}/kubernetes/admin.conf"
 
 ARGOCD_NAMESPACE="argocd"
-ARGOCD_CHART_VERSION="10.1.4"
+ARGOCD_CHART_VERSION="10.11.0"
 
 section() {
     echo

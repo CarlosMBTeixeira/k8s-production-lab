@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 API_GATEWAY_DIR="${REPO_ROOT}/kubernetes/manifests/gateway_api_metallb"
 METALLB_VERSION="v0.16.1"
-ENVOY_GATEWAY_VERSION="v1.8.2"
+ENVOY_GATEWAY_VERSION="v1.9.2"
 NAMESPACE_GATEWAY_API="gateway-api"
 KUBECONFIG_LOCAL="${REPO_ROOT}/kubernetes/admin.conf"
 

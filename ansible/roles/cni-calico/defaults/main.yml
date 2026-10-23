@@ -15,8 +15,9 @@
 # match Calico's IPPool default.
 # ============================================================================
 
-# Calico version. v3.28.x is the latest stable for K8s 1.31.
-cni_calico_version: "v3.28.2"
+# Calico version. v3.33 is tested against K8s 1.35-1.37 (docs.tigera.io
+# requirements); v3.28 was only tested up to 1.30 (ADR-039).
+cni_calico_version: "v3.33.0"
 
 # Upstream manifest URL. Hardcoded here for transparency; refresh by
 # bumping the version above.
