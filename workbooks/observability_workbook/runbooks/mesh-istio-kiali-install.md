@@ -54,7 +54,19 @@ kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-
 
 ## Still open
 
-- Rebuild once more to confirm the Ansible sysctl change applies from
-  scratch (the live fix was applied by hand).
+- ~~Rebuild once more to confirm the Ansible sysctl change applies from
+  scratch.~~ Done 2026-10-23: applied by Ansible on all three nodes,
+  istio-cni came up with zero restarts, and root on worker-1 holds 342
+  inotify instances — the old default of 128 would have failed again.
 - `fix` for the hung-VM case is manual; `lab-management.sh` could detect
   a low-RSS QEMU after launch and retry.
+- **kube-vip dropped the control-plane VIP once** (15:37:59, ~55 min after
+  the build): cp-1 failed a lease renewal with `context deadline exceeded`
+  while the control planes were at load ~3.9 on 2 vCPU, logged `lost
+  leadership, restarting kube-vip`, and cp-2 took the VIP. Clients saw
+  one `connection reset by peer` on :6443. The template's lease timings
+  (`vip_leaseduration 5`, `vip_renewdeadline 3`, `vip_retryperiod 1`)
+  leave no slack under CPU pressure; kube-vip's own defaults are 15/10/2.
+  Not changed yet — candidate for an ADR after seeing whether it recurs.
+  The next clean rebuild (same day) showed zero failed renewals on either
+  control plane.

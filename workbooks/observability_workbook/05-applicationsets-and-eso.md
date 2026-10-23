@@ -4,7 +4,7 @@
 simulated environments, order their resources deterministically, and
 close the secret gap that session 3 opened.
 
-**Overlap warning.** `../docs/argocd-learning-path/` already covers
+**Overlap warning.** `../../docs/argocd-learning-path/` already covers
 ApplicationSets (1.4), the git generator, and sync waves (3.1), and 4.1
 does secrets via **Sealed Secrets**. Do not redo those. This session
 covers only what those tiers leave out: the **matrix generator** across

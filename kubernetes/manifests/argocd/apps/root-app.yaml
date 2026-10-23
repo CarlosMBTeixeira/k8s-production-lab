@@ -6,7 +6,7 @@
 # Source is THIS repository on main (ADR-037): desired state (gitops/)
 # lives beside infra-as-code (scripts/, ansible/), so there is one folder,
 # one clone and one source of truth. Feature branches are merged back into
-# main; ArgoCD never tracks them. See observability_workbook/README.md for
+# main; ArgoCD never tracks them. See workbooks/observability_workbook/README.md for
 # why, and gitops/README.md for the layout.
 #
 # The separate k8s-gitops repo referenced by docs/argocd-learning-path/
