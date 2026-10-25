@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Final assessment S03 (unseen scenario: no hints in this file) — break/fix injector.
+# Run: netlab-b first:  bash break.sh b   — then netlab-a:  bash break.sh a   (prints the ticket)
+# Rebuilds the lab's starting state, injects one fault, prints the ticket.
+# The payload is base64 so a glance at this file does not spoil the
+# challenge. The plaintext and the fix are in solution.md — open it last.
+set -euo pipefail
+export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PHASE_DIR="$(cd "$LAB_DIR/../.." && pwd)"
+export WB_DIR="$(cd "$PHASE_DIR/.." && pwd)"
+P='c2V0IC1ldW8gcGlwZWZhaWwKU0lERT0iJHsxOj91c2FnZTogYnJlYWsuc2ggYXxifSIKQ0FQPSIkV0JfRElSL3BoYXNlMi1saW51eC1uZXR3b3JraW5nLzEyLWNhcHN0b25lLW1pbmktY25pIgpzb3VyY2UgIiRXQl9ESVIvc2V0dXAvbmV0bGFiLmVudiIKY2QgIiRDQVAiCmZvciBwIGluIHBvZDEgcG9kMjsgZG8gYmFzaCBydW50aW1lLnNoIGRlbCAkcCA+L2Rldi9udWxsIDI+JjEgfHwgdHJ1ZTsgZG9uZQpiYXNoIHJlZmVyZW5jZS92eGxhbi5zaCAiJFNJREUiIGRvd24gPi9kZXYvbnVsbCAyPiYxIHx8IHRydWUKYmFzaCBpbnN0YWxsLnNoICIkU0lERSIgcmVmZXJlbmNlL2xhYi1jbmkgPi9kZXYvbnVsbApiYXNoIHJlZmVyZW5jZS9ob3N0Z3cuc2ggIiRTSURFIiA+L2Rldi9udWxsCmlmIFsgIiRTSURFIiA9IGIgXTsgdGhlbgogIGJhc2ggcnVudGltZS5zaCBhZGQgcG9kMiA+L2Rldi9udWxsCiAgaXAgbmV0bnMgcGlkcyBwb2QyIHwgeGFyZ3MgLXIga2lsbCAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgc2V0c2lkIGlwIG5ldG5zIGV4ZWMgcG9kMiBweXRob24zICIkQ0FQL2VjaG8tc2VydmVyLnB5IiA+L2Rldi9udWxsIDI+JjEgPCAvZGV2L251bGwgJgogICMgLS0tIHRoZSBmYXVsdCAtLS0KICBpcCByb3V0ZSByZXBsYWNlIDEwLjI0NC4xLjAvMjQgZGV2IGNuaTAKICBlY2hvICJzaWRlIEIgcmVhZHkuIE5vdyBydW4gJ2Jhc2ggYnJlYWsuc2ggYScgb24gbmV0bGFiLWEuIgplbHNlCiAgYmFzaCBydW50aW1lLnNoIGFkZCBwb2QxID4vZGV2L251bGwKY2F0IDw8J1QnCgpUSUNLRVQgUzAzICBUd28taG9zdCBwb2QgbmV0d29yayAodGhlIGNhcHN0b25lIDIuMTIgc2V0dXAsIHJlZmVyZW5jZSBwbHVnaW4sCiAgICAgICAgICAgIHJvdXRlZCBtb2RlKS4gcG9kMSBvbiBuZXRsYWItYSAoMTAuMjQ0LjEuMikgYW5kIHBvZDIgb24gbmV0bGFiLWIKICAgICAgICAgICAgKDEwLjI0NC4yLjIpIGNhbid0IHRhbGs6CiAgICAgICAgICAgICAgaXAgbmV0bnMgZXhlYyBwb2QxIGN1cmwgLW0zIGh0dHA6Ly8xMC4yNDQuMi4yOjgwODAvICAgKG9uIG5ldGxhYi1hKQogICAgICAgICAgICBBIGNvbGxlYWd1ZSAidGlkaWVkIHVwIHRoZSByb3V0ZXMgb24gbmV0bGFiLWIiLiBFYWNoIGhvc3QncyBwb2RzCiAgICAgICAgICAgIHJlYWNoIHRoZWlyIG93biBnYXRld2F5LgogICAgICAgICAgICBDbGVhbnVwOiBvbiBlYWNoIGhvc3QsIHNlZSB0aGUgY2Fwc3RvbmUncyBjbGVhbnVwIHNlY3Rpb24uClQKZmkK'
+base64 -d <<<"$P" | bash -s -- "$@"
