@@ -111,3 +111,16 @@ sudo sysctl fs.inotify.max_user_instances=512   # rollback: sudo sysctl fs.inoti
 ```
 
 Only do this if a kind pod actually fails with that error.
+
+## Changing a break/fix fault
+
+`break.sh` files are generated, so don't edit their payloads by hand. Edit
+the fault where it is recorded, then rebuild:
+
+- **phase labs:** edit the bash block between `<!--FAULT-->` and `<!--/FAULT-->` in the lab's `solution.md`;
+- **final scenarios:** the fault is inside `solution.b64` (decode, edit `## What was injected`, re-encode; the steps are at the top of the script).
+
+```bash
+python3 setup/build-breaks.py            # rebuild all (or pass lab paths)
+python3 setup/build-breaks.py --check    # exit 1 if any break.sh is stale
+```

@@ -3,7 +3,7 @@
 # Run: WSL host, kind lab-cilium with Cilium (KPR) + Hubble (e.g. lab 3.07/3.08 setup; unset KUBECONFIG first)
 # Rebuilds the lab's starting state, injects one fault, prints the ticket.
 # The payload is base64 so a glance at this file does not spoil the
-# challenge. The plaintext and the fix are in solution.md — open it last.
+# challenge. The fix: ../../reveal.sh S09, only once it is scored.
 set -euo pipefail
 export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PHASE_DIR="$(cd "$LAB_DIR/../.." && pwd)"

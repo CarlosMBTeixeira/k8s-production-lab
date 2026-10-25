@@ -3,7 +3,7 @@
 # Run: WSL host, the lab 4.08 capstone environment (kind lab-calico + lab-frr, verify.sh passing)
 # Rebuilds the lab's starting state, injects one fault, prints the ticket.
 # The payload is base64 so a glance at this file does not spoil the
-# challenge. The plaintext and the fix are in solution.md — open it last.
+# challenge. The fix: ../../reveal.sh S11, only once it is scored.
 set -euo pipefail
 export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PHASE_DIR="$(cd "$LAB_DIR/../.." && pwd)"
