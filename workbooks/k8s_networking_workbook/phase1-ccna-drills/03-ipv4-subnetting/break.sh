@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Lab 1.03 — break/fix injector.
+# Run: netlab-c, root, in your local copy (~/wb/phase1-ccna-drills/03-ipv4-subnetting):  bash break.sh
+# Rebuilds the lab's starting state, injects one fault, prints the ticket.
+# The payload is base64 so a glance at this file does not spoil the
+# challenge. The plaintext and the fix are in solution.md — open it last.
+set -euo pipefail
+export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PHASE_DIR="$(cd "$LAB_DIR/.." && pwd)"
+export WB_DIR="$(cd "$PHASE_DIR/.." && pwd)"
+P='c2V0IC1ldW8gcGlwZWZhaWwKY2QgIiRQSEFTRV9ESVIvdG9wbyIKY29udGFpbmVybGFiIGRlcGxveSAtdCBsYW4uY2xhYi55bWwgLS1yZWNvbmZpZ3VyZSA+L2Rldi9udWxsICYmIGJhc2ggbGFuLXNldHVwLnNoID4vZGV2L251bGwKeCgpIHsgZG9ja2VyIGV4ZWMgY2xhYi1wMWwtJDEgc2ggLWMgIiQyIjsgfQp4IHIxICdzeXNjdGwgLXF3IG5ldC5pcHY0LmlwX2ZvcndhcmQ9MTsgaXAgYWRkciBhZGQgMTAuMC4xMC4xMjYvMjUgZGV2IGV0aDE7IGlwIGFkZHIgYWRkIDEwLjAuMTAuMjU0LzI1IGRldiBldGgxJwp4IGgxICdpcCBhZGRyIGZsdXNoIGRldiBldGgxOyBpcCBhZGRyIGFkZCAxMC4wLjEwLjEvMjUgZGV2IGV0aDE7ICAgaXAgcm91dGUgYWRkIGRlZmF1bHQgdmlhIDEwLjAuMTAuMTI2Jwp4IGgyICdpcCBhZGRyIGZsdXNoIGRldiBldGgxOyBpcCBhZGRyIGFkZCAxMC4wLjEwLjIvMjUgZGV2IGV0aDE7ICAgaXAgcm91dGUgYWRkIGRlZmF1bHQgdmlhIDEwLjAuMTAuMTI2Jwp4IGgzICdpcCBhZGRyIGZsdXNoIGRldiBldGgxOyBpcCBhZGRyIGFkZCAxMC4wLjEwLjEzMC8yNSBkZXYgZXRoMTsgaXAgcm91dGUgYWRkIGRlZmF1bHQgdmlhIDEwLjAuMTAuMjU0Jwp4IGg0ICdpcCBhZGRyIGZsdXNoIGRldiBldGgxOyBpcCBhZGRyIGFkZCAxMC4wLjEwLjEzMS8yNSBkZXYgZXRoMTsgaXAgcm91dGUgYWRkIGRlZmF1bHQgdmlhIDEwLjAuMTAuMjU0JwojIC0tLSB0aGUgZmF1bHQgLS0tCnggaDIgJ2lwIGFkZHIgYWRkIDEwLjAuMTAuMi8yNiBkZXYgZXRoMTsgaXAgYWRkciBkZWwgMTAuMC4xMC4yLzI1IGRldiBldGgxJwpjYXQgPDwnVCcKClRJQ0tFVCAgQWZ0ZXIgInN0YW5kYXJkaXNpbmcgYWRkcmVzc2luZyIgb24gaDIsIGl0IGNhbiBzdGlsbCBwaW5nIGgxCiAgICAgICAgKDEwLjAuMTAuMSkgYnV0IG5vdCBoMyAoMTAuMC4xMC4xMzApLCB0aGUgcm91dGVyLCBvciBhbnl0aGluZyBlbHNlOgogICAgICAgICAgZG9ja2VyIGV4ZWMgY2xhYi1wMWwtaDIgcGluZyAtYzIgMTAuMC4xMC4xMzAgICDihpIgIk5ldHdvcmsgaXMgdW5yZWFjaGFibGUiClQK'
+base64 -d <<<"$P" | bash -s -- "$@"

@@ -141,12 +141,12 @@ Record the date and, for break/fix, the minutes to diagnose.
 - [ ] kind cluster from `setup/kind/cilium.yaml` comes up and is deleted cleanly
 
 ### Phase 1 — drills
-- [ ] 01 Encapsulation, layer by layer
+- [ ] 01 Encapsulation, layer by layer — and record your first subnet-quiz time
 - [ ] 02 Ethernet, ARP and MAC learning
 - [ ] 03 IPv4 addressing and subnetting
 - [ ] 04 The IPv4 header: TTL, DF, fragmentation
 - [ ] 05 Static routing and the life of a packet
-- [ ] 06 VLANs and 802.1Q trunks
+- [ ] 06 VLANs, trunks and STP
 - [ ] 07 TCP and UDP on the wire
 - [ ] 08 DNS resolution
 - [ ] 09 DHCP

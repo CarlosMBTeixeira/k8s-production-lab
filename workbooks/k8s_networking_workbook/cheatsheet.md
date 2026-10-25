@@ -23,6 +23,16 @@ tshark -r f.pcap -Y tcp.analysis.flags            # retransmits, dup ACKs, zero 
 ethtool -k <if> | grep segmentation               # GSO/TSO on? captures show >MTU "packets" [2.07]
 ```
 Dropped where tcpdump can't see: XDP, tc egress, qdisc, netfilter on egress [2.11].
+```bash
+traceroute -n | -I | -T <dst>                     # UDP / ICMP / TCP probes: try -T when firewalls eat the others [1-04]
+ping -t <ttl> | -M do -s <size> | -Q <tos> <dst>  # TTL, DF+size, DSCP on purpose [1-04]
+bridge monitor fdb                                # MAC moves live: flapping = duplicate MAC or loop [1-02]
+arping -c3 <ip>   ·   arping -U -I <if> <ip>      # who answers ARP for an IP / send a gratuitous ARP [1-02, 1-11]
+ip -6 neigh; ip -6 maddr                          # NDP cache, solicited-node groups [1-12]
+dig +trace <name> · dig +search <short> · getent hosts <name>   # iterate from root · use search list · what apps see [1-08]
+busybox udhcpc -i eth0 -f -q -n -s <script>       # DHCP client by hand; capture 'port 67 or port 68' -v [1-09]
+vtysh -c 'show ip ospf neighbor' | 'show ip ospf database'   # stuck in ExStart = MTU [1-10]
+```
 
 
 ## Namespaces, links, addresses, neighbours

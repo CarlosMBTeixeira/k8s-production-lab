@@ -1,0 +1,13 @@
+$ORIGIN lab.local.
+$TTL 300
+@       IN SOA  ns1.lab.local. admin.lab.local. ( 2026102601 3600 600 86400 60 )
+@       IN NS   ns1
+ns1     IN A    10.53.0.53
+web     IN A    10.53.0.80
+www     IN CNAME web
+db      IN A    10.53.0.81
+        IN AAAA fd00:53::81
+@       IN MX   10 mail
+mail    IN A    10.53.0.25
+_http._tcp.web IN SRV 0 50 80 web
+@       IN TXT  "v=lab1"
