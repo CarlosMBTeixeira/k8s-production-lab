@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lab-cni — REFERENCE implementation for capstone 2.12. Don't read it until
+# your own skeleton/lab-cni passes verify.sh (or you've been stuck 2 hours).
+#
+# A CNI 1.0.0 plugin: bridge + file-based IPAM + egress masquerade.
+#   stdin  : network config (JSON)
+#   env    : CNI_COMMAND CNI_CONTAINERID CNI_NETNS CNI_IFNAME CNI_PATH
+#   stdout : result JSON on ADD/VERSION, error JSON on failure — nothing else
+#   exit   : 0 ok, non-zero with an error object on stdout
+# ============================================================================
+set -euo pipefail
+exec 3>&1 1>>/var/log/lab-cni.log 2>&1        # fd 3 = the result channel; all chatter → log
+echo "--- $(date -Is) ${CNI_COMMAND:-?} ${CNI_CONTAINERID:-} ${CNI_NETNS:-}"
+
+CONF=$(cat)
+cfg() { jq -r "$1" <<<"$CONF"; }
+VER=$(cfg '.cniVersion // "1.0.0"')
+err() { # code msg
+    jq -cn --arg v "$VER" --argjson c "$1" --arg m "$2" '{cniVersion:$v, code:$c, msg:$m}' >&3
+    exit 1
+}
+
+if [ "${CNI_COMMAND:-}" = VERSION ]; then
+    echo '{"cniVersion":"1.0.0","supportedVersions":["1.0.0"]}' >&3; exit 0
+fi
+
+BR=$(cfg '.bridge // "cni0"')
+SUBNET=$(cfg '.subnet')                       # 10.244.N.0/24 — this node's pod CIDR
+CLUSTER=$(cfg '.clusterCIDR // "10.244.0.0/16"')
+MTU=$(cfg '.mtu // 1500')
+NAME=$(cfg '.name')
+PREFIX=${SUBNET%.0/24}                        # 10.244.N
+GW=$PREFIX.1
+IPAM=/var/lib/lab-cni/$NAME
+HOSTIF=veth${CNI_CONTAINERID:0:8}
+
+ensure_node() {
+    if ! ip link show "$BR" >/dev/null 2>&1; then
+        ip link add "$BR" type bridge
+        ip addr add "$GW/24" dev "$BR"
+    fi
+    ip link set "$BR" up
+    sysctl -qw net.ipv4.ip_forward=1
+    local rule=(-s "$SUBNET" ! -d "$CLUSTER" -j MASQUERADE -m comment --comment lab-cni)
+    iptables -t nat -C POSTROUTING "${rule[@]}" 2>/dev/null || iptables -t nat -A POSTROUTING "${rule[@]}"
+}
+
+alloc_ip() {
+    mkdir -p "$IPAM"
+    exec 9>"$IPAM/.lock"; flock 9             # two pods starting at once must not get the same IP
+    local i
+    for i in $(seq 2 254); do
+        if [ ! -e "$IPAM/$PREFIX.$i" ]; then
+            echo "$CNI_CONTAINERID" > "$IPAM/$PREFIX.$i"; echo "$PREFIX.$i"; return 0
+        fi
+    done
+    return 1
+}
+
+free_ip() {
+    grep -lx "$CNI_CONTAINERID" "$IPAM"/"$PREFIX".* 2>/dev/null | xargs -r rm -f || true
+}
+
+in_ns() { nsenter --net="$CNI_NETNS" "$@"; }
+
+case "${CNI_COMMAND:-}" in
+ADD)
+    [ -e "$CNI_NETNS" ] || err 3 "netns $CNI_NETNS does not exist"
+    ensure_node
+    IP=$(alloc_ip) || err 11 "no free addresses in $SUBNET"
+    ip link add "$HOSTIF" mtu "$MTU" type veth peer name "$CNI_IFNAME" mtu "$MTU" netns "$CNI_NETNS"
+    ip link set "$HOSTIF" master "$BR" up
+    in_ns ip addr add "$IP/24" dev "$CNI_IFNAME"
+    in_ns ip link set "$CNI_IFNAME" up
+    in_ns ip link set lo up
+    in_ns ip route add default via "$GW"
+    HMAC=$(ip -j link show "$HOSTIF" | jq -r '.[0].address')
+    CMAC=$(in_ns ip -j link show "$CNI_IFNAME" | jq -r '.[0].address')
+    jq -cn --arg v "$VER" --arg br "$BR" --arg hif "$HOSTIF" --arg hmac "$HMAC" \
+           --arg cif "$CNI_IFNAME" --arg cmac "$CMAC" --arg ns "$CNI_NETNS" \
+           --arg ip "$IP/24" --arg gw "$GW" '{
+        cniVersion: $v,
+        interfaces: [ {name: $br}, {name: $hif, mac: $hmac}, {name: $cif, mac: $cmac, sandbox: $ns} ],
+        ips:        [ {address: $ip, gateway: $gw, interface: 2} ],
+        routes:     [ {dst: "0.0.0.0/0", gw: $gw} ],
+        dns:        {}
+      }' >&3
+    ;;
+DEL)
+    # Must succeed even if the pod, netns or veth are already gone (spec: DEL is idempotent).
+    free_ip
+    ip link del "$HOSTIF" 2>/dev/null || true     # deleting one end deletes the peer
+    ;;
+CHECK)
+    [ -e "$CNI_NETNS" ] || err 3 "netns $CNI_NETNS does not exist"
+    ip link show "$HOSTIF" >/dev/null 2>&1 || err 100 "host veth $HOSTIF missing"
+    in_ns ip -4 -o addr show dev "$CNI_IFNAME" | grep -q "inet $PREFIX\." || err 100 "no $PREFIX.x address on $CNI_IFNAME"
+    in_ns ip route show default | grep -q "via $GW" || err 100 "no default route via $GW"
+    ;;
+*)
+    err 4 "unknown CNI_COMMAND '${CNI_COMMAND:-}'"
+    ;;
+esac

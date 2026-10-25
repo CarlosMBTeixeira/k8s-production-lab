@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# ============================================================================
+# lab-cni — YOUR CNI plugin for capstone 2.12. Fill in every TODO.
+#
+# Contract (CNI spec 1.0, the parts that matter here):
+#   stdin  : network config JSON (see /etc/cni/net.d/10-lab.conf)
+#   env    : CNI_COMMAND (ADD|DEL|CHECK|VERSION), CNI_CONTAINERID,
+#            CNI_NETNS (path to the pod's netns), CNI_IFNAME (eth0), CNI_PATH
+#   stdout : ONLY the result JSON (ADD, VERSION) or an error JSON:
+#            {"cniVersion":"1.0.0","code":<n>,"msg":"..."}  and exit non-zero
+#   codes  : 3 unknown container/netns · 4 bad env · 7 bad config ·
+#            11 try again later · 100+ your own
+#   DEL    : must succeed (exit 0) even if things are already gone
+#
+# Test without Kubernetes:  bash runtime.sh add pod1 / del pod1 / check pod1
+# Logs: /var/log/lab-cni.log (everything except fd 3 goes there).
+# ============================================================================
+set -euo pipefail
+exec 3>&1 1>>/var/log/lab-cni.log 2>&1        # fd 3 = result channel. Write results with >&3.
+echo "--- $(date -Is) ${CNI_COMMAND:-?} ${CNI_CONTAINERID:-} ${CNI_NETNS:-}"
+
+CONF=$(cat)
+cfg() { jq -r "$1" <<<"$CONF"; }
+VER=$(cfg '.cniVersion // "1.0.0"')
+err() { # code msg
+    jq -cn --arg v "$VER" --argjson c "$1" --arg m "$2" '{cniVersion:$v, code:$c, msg:$m}' >&3
+    exit 1
+}
+
+if [ "${CNI_COMMAND:-}" = VERSION ]; then
+    echo '{"cniVersion":"1.0.0","supportedVersions":["1.0.0"]}' >&3; exit 0
+fi
+
+BR=$(cfg '.bridge // "cni0"')
+SUBNET=$(cfg '.subnet')                       # e.g. 10.244.1.0/24
+CLUSTER=$(cfg '.clusterCIDR // "10.244.0.0/16"')
+MTU=$(cfg '.mtu // 1500')
+NAME=$(cfg '.name')
+PREFIX=${SUBNET%.0/24}                        # 10.244.1
+GW=$PREFIX.1
+HOSTIF=veth${CNI_CONTAINERID:0:8}             # deterministic, so DEL can find it again
+
+ensure_node() {
+    # TODO 1: create bridge $BR with $GW/24 if it doesn't exist; bring it up.
+    # TODO 2: enable IPv4 forwarding.
+    # TODO 3: add (once — check before adding) a MASQUERADE rule for pod traffic leaving
+    #         the cluster: source $SUBNET, destination NOT $CLUSTER.
+    #         Why "not $CLUSTER"? Milestone 3 tells you.
+    :
+}
+
+alloc_ip() {
+    # TODO 4: pick a free address from $PREFIX.2 .. $PREFIX.254, record that
+    #         $CNI_CONTAINERID owns it (a file per IP under /var/lib/lab-cni/$NAME works),
+    #         and print it. Two ADDs at once must not get the same IP (flock).
+    return 1
+}
+
+free_ip() {
+    # TODO 5: release whatever $CNI_CONTAINERID owns. Must not fail if it owns nothing.
+    :
+}
+
+case "${CNI_COMMAND:-}" in
+ADD)
+    # TODO 6: fail with code 3 if $CNI_NETNS doesn't exist.
+    ensure_node
+    IP=$(alloc_ip) || err 11 "no free addresses in $SUBNET"
+    # TODO 7: veth pair: $HOSTIF on the host (MTU $MTU, attached to $BR, up),
+    #         $CNI_IFNAME inside $CNI_NETNS (MTU $MTU).
+    #         Hint: `ip link add A type veth peer name B netns <path>` and `nsenter --net=<path> ip …`
+    #         Beware: inside nsenter, /sys is still the host's — use `ip -j link`, not /sys.
+    # TODO 8: inside the pod: address $IP/24, link up, lo up, default route via $GW.
+    # TODO 9: print the result to fd 3. Minimum: cniVersion, interfaces (host veth, pod eth0
+    #         with "sandbox": $CNI_NETNS), ips [{address, gateway, interface: <index>}].
+    err 100 "ADD not implemented"
+    ;;
+DEL)
+    # TODO 10: release the IP and remove the host veth. Exit 0 even if already gone.
+    ;;
+CHECK)
+    # TODO 11 (stretch): verify the veth, the address and the default route still exist;
+    #          return an error code if not.
+    ;;
+*)
+    err 4 "unknown CNI_COMMAND '${CNI_COMMAND:-}'"
+    ;;
+esac
