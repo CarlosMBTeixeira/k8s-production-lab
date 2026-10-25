@@ -20,8 +20,9 @@ lab-client 172.30.99.10 ── [lab-ext 172.30.99.0/24] ── lab-frr (AS 65000
 ```
 
 and gives every kind node a return route to `lab-ext` via `lab-frr`, so
-"outside" traffic is really routed. `lib/daemons` is the FRR daemons file
-every router in this phase uses.
+"outside" traffic is really routed. `lib/daemons` and `lib/vtysh.conf` are
+the FRR daemons and vtysh files every router in this phase (and Phase 1's
+`routed` topology) uses.
 
 ## Labs
 

@@ -31,7 +31,7 @@ traceroute alternating between the two routers.
 |---|---|
 | Hypothesis | TTL exceeded for an unknown destination = a routing loop, not a missing route (which gives "net unreachable" or silence). |
 | Tool | `x h1 'traceroute -n -m 8 172.16.99.10'` |
-| Expected if right | hops alternate `172.16.1.1`, `10.0.12.2`, `10.0.12.1`, `10.0.12.2`, … |
+| Expected if right | hops alternate `172.16.1.1`, `10.0.12.2`, `172.16.1.1`, `10.0.12.2`, … r1 shows up as 172.16.1.1 even on hops where the probe arrived from r2: Linux sources the ICMP error from the interface it **sends** it out of (toward h1), not the one the probe came in on. |
 | Tool 2 | `docker exec clab-p1r-r1 vtysh -c 'show ip route 172.16.99.10'` and the same on r2 |
 | Expected if right | r1: default via 10.0.12.2; r2: default via 10.0.12.1. |
 | What would have told me sooner | Two defaults that point at each other is the classic static-routing loop: a default route belongs toward the exit, never back the way you came. |

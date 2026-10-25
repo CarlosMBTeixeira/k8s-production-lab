@@ -28,12 +28,13 @@ VLAN 20, and are dropped. h2 → h4 dies; h2 → its gateway (on sw1) works.
 | Tool | `x sw2 'bridge vlan show dev eth3'` vs `x sw1 'bridge vlan show dev eth3'` |
 | Expected if right | sw1 eth3: 10, 20 · sw2 eth3: 10 only. |
 | Tool 2 | `x sw2 'tcpdump -nnei eth3 vlan 20'` while h2 pings h4 |
-| Expected if right | tagged frames arrive; nothing is forwarded to eth2. |
+| Expected if right | tagged frames arrive (ARP requests for 10.0.20.4: h2 never gets past ARP); nothing is forwarded to eth2. |
 | What would have told me sooner | Compare the allowed-VLAN list on **both ends** of every trunk (on real switches: `show interfaces trunk`). |
 
 ## Fix
 
 ```bash
 x sw2 'bridge vlan add dev eth3 vid 20'
+x h2 'ip neigh flush all'          # h4's entry is FAILED from the outage; else the first ping still errors
 x h2 'ping -c2 10.0.20.4'; x h1 'ping -c2 10.0.10.3'
 ```

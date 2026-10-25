@@ -15,9 +15,9 @@
 # FORWARD or adds a MASQUERADE in the wrong place would cut off the lab.
 # Inside a netlab VM the worst case is `netlab.sh down && netlab.sh up`.
 #
-# netlab-a and netlab-b stay Docker-free on purpose: Docker loads
-# br_netfilter and sets the FORWARD policy to DROP, which silently breaks
-# hand-built bridges and routers. netlab-c is the Docker + Containerlab VM
+# netlab-a and netlab-b stay Docker-free on purpose: Docker sets the
+# FORWARD policy to DROP, which silently breaks hand-built routers, and
+# hand-built bridges too once br_netfilter is loaded. netlab-c is the Docker + Containerlab VM
 # (Phase 1 drills, Phase 4 labs 01 and 05).
 # Do not run netlab and k8slab at the same time: the k8slab VMs take ~16 GB
 # of the host's 19 GiB.

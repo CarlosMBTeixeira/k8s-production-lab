@@ -8,7 +8,7 @@ UP=$(ip -o route show default | awk '{print $5}')
 pkill -f 'http.server 80' 2>/dev/null || true
 for i in 2 3; do ip netns del c$i 2>/dev/null || true; done
 ip link del lab0 2>/dev/null || true
-iptables-save -t nat | grep -v lab205 | iptables-restore -T nat
+iptables-save -t nat | grep -v -e lab205 -e 'no NAT to VPN' | iptables-restore -T nat
 ip link add lab0 type bridge
 ip addr add 172.30.0.1/24 dev lab0
 ip link set lab0 up

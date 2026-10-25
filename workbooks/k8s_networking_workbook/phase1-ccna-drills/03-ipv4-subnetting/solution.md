@@ -13,20 +13,25 @@ x h2 'ip addr flush dev eth1; ip addr add 10.0.10.2/25 dev eth1;   ip route add 
 x h3 'ip addr flush dev eth1; ip addr add 10.0.10.130/25 dev eth1; ip route add default via 10.0.10.254'
 x h4 'ip addr flush dev eth1; ip addr add 10.0.10.131/25 dev eth1; ip route add default via 10.0.10.254'
 # --- the fault ---
-x h2 'ip addr add 10.0.10.2/26 dev eth1; ip addr del 10.0.10.2/25 dev eth1'
+x h2 'ip addr flush dev eth1; ip addr add 10.0.10.2/26 dev eth1; ip route add default via 10.0.10.126 2>/dev/null || true'
 cat <<'T'
 
 TICKET  After "standardising addressing" on h2, it can still ping h1
         (10.0.10.1) but not h3 (10.0.10.130), the router, or anything else:
-          docker exec clab-p1l-h2 ping -c2 10.0.10.130   → "Network is unreachable"
+          docker exec clab-p1l-h2 ping -c2 10.0.10.130   → "ping: connect: Network unreachable"
 T
 ```
 <!--/FAULT-->
 
-h2 got `10.0.10.2/26` (network 10.0.10.0, hosts .1–.62). Its gateway
-10.0.10.126 is **outside** that /26, so the kernel deleted the default
-route when the address changed (a gateway must be on-link). h2 still
-reaches h1 (.1 is inside the /26) and nothing else.
+h2 was re-addressed as `10.0.10.2/26` (network 10.0.10.0, hosts .1–.62).
+Flushing the old address took the default route with it, and the script's
+`ip route add default via 10.0.10.126` then failed. The gateway is
+**outside** the /26, and a gateway must be on-link. The script swallowed
+the error. h2 still reaches h1 (.1 is inside the /26) and nothing else.
+
+The order matters. Adding the /26 *before* deleting the /25 keeps the old
+default route, and it keeps working while the neighbour entry for .126
+lives. That's a mask bug that passes every test until a reboot.
 
 | Beat | Answer |
 |---|---|

@@ -81,8 +81,9 @@ Container runtimes do **not** register their namespaces in `/run/netns`, so
 an unnamed namespace with `unshare`:
 
 ```bash
-unshare --net --fork --pid --mount-proc sleep 3600 &
-PID=$(pgrep -n -f 'sleep 3600')       # the sleep inside the new ns
+unshare --net sleep 3600 &
+PID=$!; sleep 0.5                     # unshare(2) on itself, then exec sleep: same PID, new netns
+readlink /proc/$PID/ns/net /proc/self/ns/net   # two different net:[inode]s
 ip link add host-side type veth peer name eth0 netns $PID
 ip link set host-side up
 nsenter -t $PID -n ip link set eth0 up
@@ -139,7 +140,8 @@ Solution: [`solution.md`](solution.md).
 ```bash
 ip netns pids red | xargs -r kill; ip netns pids blue | xargs -r kill
 ip netns del red; ip netns del blue
-pkill -f 'sleep 3600'; ip link del host-side 2>/dev/null
+kill $PID; ip link del host-side 2>/dev/null   # new shell? pkill -f 'sleep 3600'
+lsns -t net                           # only /sbin/init's netns left
 ```
 
 Deleting a netns only removes the name; a process still inside keeps the

@@ -14,6 +14,7 @@ cd ~/wb/phase1-ccna-drills/topo; containerlab deploy -t routed.clab.yml --reconf
 v() { docker exec clab-p1r-$1 vtysh -c "$2"; }
 c() { docker exec clab-p1r-$1 vtysh -c 'conf t' -c "$2"; }
 x() { docker exec clab-p1r-$1 sh -c "$2"; }
+cap() { ip netns exec clab-p1r-$1 tcpdump "${@:2}"; }   # netlab-c's tcpdump inside a node's netns (the FRR image has none)
 ```
 
 ## 2. Hands-on
@@ -32,7 +33,7 @@ v r1 'show ip route'                        # C = connected, S = static; [1/0] =
 The life of a packet, at r1, for h1 → h2: frame arrives for r1's MAC →
 strip L2 → look up 172.16.2.10 → best match `172.16.2.0/24 via 10.0.12.2`
 → ARP for 10.0.12.2 on eth2 → new L2 header → TTL−1 → out. Say it aloud
-once while watching `x r1 'tcpdump -nnei any -c4 icmp'`.
+once while watching `cap r1 -nnei any -c4 icmp`.
 
 ### 2.2 Longest-prefix match
 

@@ -1,6 +1,8 @@
 # Phase 1 — DNS (drill 08): a CoreDNS server (authoritative for lab.local,
 # recursive for everything else) and a client, on 10.53.0.0/24.
 # Deploy (netlab-c, root, local copy):  containerlab deploy -t dns.clab.yml && bash dns-setup.sh
+# Every link is pinned to MTU 1500 (Containerlab defaults to 9500), so the
+# fragmentation, PMTUD and OSPF-MTU drills see real-Ethernet numbers.
 name: p1d
 topology:
   defaults: {kind: linux}
@@ -9,4 +11,4 @@ topology:
     dns:     {image: "coredns/coredns:1.11.3", network-mode: container:dns-net, binds: [dns/Corefile:/Corefile, dns/lab.local.zone:/lab.local.zone], cmd: -conf /Corefile}
     client:  {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
   links:
-    - endpoints: ["client:eth1", "dns-net:eth1"]
+    - {endpoints: ["client:eth1", "dns-net:eth1"], mtu: 1500}

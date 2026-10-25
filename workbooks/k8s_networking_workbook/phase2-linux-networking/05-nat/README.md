@@ -161,7 +161,7 @@ Solution: [`solution.md`](solution.md).
 pkill -f 'http.server 80' || true
 for i in 2 3; do ip netns del c$i 2>/dev/null; rm -rf /etc/netns/c$i; done
 ip link del lab0
-iptables-save -t nat | grep -v lab205 | iptables-restore -T nat
+iptables-save -t nat | grep -v -e lab205 -e 'no NAT to VPN' | iptables-restore -T nat   # lab rules + the break.sh fault
 sysctl -w net.ipv4.conf.all.route_localnet=0
 sysctl -w net.ipv4.ip_forward=0          # labs 2.06+ set it again when they need it
 ```

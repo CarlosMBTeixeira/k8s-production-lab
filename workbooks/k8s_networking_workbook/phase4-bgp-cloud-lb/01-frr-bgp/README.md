@@ -38,10 +38,9 @@ The state machine: **Idle → Connect** (TCP SYN to 179) **→ Active**
 ### 2.2 The messages on the wire
 
 ```bash
-docker exec clab-bgp-r2 tcpdump -nni eth2 -w /tmp/bgp.pcap tcp port 179 &
+ip netns exec clab-bgp-r2 tcpdump -nni eth2 -w /tmp/bgp.pcap tcp port 179 &   # host tcpdump, r2's netns (no tcpdump in the FRR image)
 v r2 'clear bgp 10.0.23.3'           # hard reset: new TCP session, new OPEN
 sleep 12; kill %1
-docker cp clab-bgp-r2:/tmp/bgp.pcap /tmp/bgp.pcap
 tshark -r /tmp/bgp.pcap -Y bgp -T fields -e frame.time_relative -e ip.src -e bgp.type -e bgp.open.myas -e bgp.open.holdtime -e bgp.update.path_attribute.as_path -e bgp.nlri_prefix
 ```
 

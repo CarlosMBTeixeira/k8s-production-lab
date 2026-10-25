@@ -65,13 +65,21 @@ why every modern switch runs RSTP/MSTP.
 
 ```bash
 for s in sw1 sw2; do x $s 'ip link set br0 type bridge stp_state 0'; done
+x sw2 'bridge link'                                         # ports keep the state STP left them in (blocking/learning)
+for s in sw1 sw2; do x $s 'for p in eth3 eth4; do bridge link set dev $p state 3; done'; done   # force forwarding: loop closed
 x h1 'arping -c1 -I eth1 10.0.10.3 >/dev/null' ; sleep 3
 x sw1 'ip -s link show eth4 | sed -n 4p'                  # RX packets climbing by the thousand
 for s in sw1 sw2; do x $s 'ip link set eth4 nomaster'; done   # break the loop NOW
 ```
 
 One broadcast, looping forever between two switches: no TTL at L2. That's
-a broadcast storm.
+a broadcast storm: one ARP became about 4 million frames in 3 seconds on
+netlab-c.
+
+Turning STP off doesn't reset the ports. Each one keeps the state STP last
+gave it, so a blocking or learning port still holds the loop open until you
+force it to forwarding (`state 3`). On a real switch, "disable STP" behaves
+differently per vendor. Don't count on it.
 
 ## 3. Verification
 
@@ -79,7 +87,7 @@ a broadcast storm.
 |---|---|
 | §2.1 | h1 ↔ h3 direct with `vlan 10` tags on the trunk; h1 → h2 only via r1, seen tagged 10 in and 20 out |
 | §2.2 | one inter-switch port blocking; BPDUs every 2 s; recovery in tens of seconds after the link failure |
-| §2.3 | counters explode while STP is off; they stop when eth4 leaves the bridges |
+| §2.3 | after forcing the ports to forwarding, eth4 RX jumps by millions in 3 s; it stops when eth4 leaves the bridges |
 
 ## 4. Break/fix
 

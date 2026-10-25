@@ -37,7 +37,7 @@ too. No NOTIFICATION, nothing in FRR's log on r2 except retries.
 | Hypothesis | Stuck in Active = no TCP session. Reachability is fine (ping 10.0.23.3 from r2 works), so something rejects the TCP itself. |
 | Tool | `v r2 'show bgp neighbors 10.0.23.3' \| grep -E 'BGP state\|Last reset\|Connections'` |
 | Expected if right | `BGP state = Active`, connection attempts rising, no "established" count increase. |
-| Tool 2 | `docker exec clab-bgp-r3 tcpdump -nni eth1 -c6 tcp port 179` |
+| Tool 2 | `ip netns exec clab-bgp-r3 tcpdump -nni eth1 -c6 tcp port 179` |
 | Expected if right | SYNs from 10.0.23.2 and **no SYN-ACK** (r3's kernel ignores them); r3's own SYNs carry `md5` in the options. |
 | Tool 3 | `dmesg \| grep -i md5 \| tail -3` on netlab-c (the containers share its kernel) |
 | Expected if right | `MD5 Hash NOT expected …` / `MD5 Hash mismatch …` naming 10.0.23.2 ↔ 10.0.23.3. |

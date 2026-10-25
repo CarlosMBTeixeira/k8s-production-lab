@@ -61,11 +61,11 @@ datapath question is "which of these five hooks, in which table".
 ```bash
 $R iptables -F
 $R nft add table inet lab
-$R nft add chain inet lab fwd '{ type filter hook forward priority 0; policy drop; }'
-$R nft add rule inet lab fwd ct state established,related accept
-$R nft add rule inet lab fwd iifname r-c tcp dport 8080 ct state new counter accept
-$R nft add rule inet lab fwd iifname r-c icmp type echo-request counter accept
-$R nft add rule inet lab fwd counter log prefix '"lab-drop "'
+$R nft add chain inet lab forward '{ type filter hook forward priority 0; policy drop; }'
+$R nft add rule inet lab forward ct state established,related accept
+$R nft add rule inet lab forward iifname r-c tcp dport 8080 ct state new counter accept
+$R nft add rule inet lab forward iifname r-c icmp type echo-request counter accept
+$R nft add rule inet lab forward counter log prefix '"lab-drop "'
 $R nft -a list table inet lab                  # -a shows rule handles
 ip netns exec client curl -s 10.2.2.2:8080     # works
 ip netns exec server curl -s -m2 10.1.1.2:22   # server → client: new, not from r-c → dropped and logged
@@ -75,15 +75,15 @@ ip netns exec server curl -s -m2 10.1.1.2:22   # server → client: new, not fro
 
 ```bash
 $R iptables -A FORWARD -p tcp --dport 8080 -j ACCEPT
-$R nft add rule inet lab fwd tcp dport 8080 drop   # appended — after the accept, so no effect yet
-$R nft -a list chain inet lab fwd
+$R nft add rule inet lab forward tcp dport 8080 drop   # appended — after the accept, so no effect yet
+$R nft -a list chain inet lab forward
 ```
 
 Insert a drop **before** the accept in `inet lab`, keep the iptables ACCEPT,
 and predict: does the iptables ACCEPT win? (No. An `accept` ends evaluation
 in *that* chain only; every other base chain on the hook still runs. A
 `drop` anywhere is final.) Prove it, then delete the rule by handle:
-`$R nft delete rule inet lab fwd handle <n>`.
+`$R nft delete rule inet lab forward handle <n>`.
 
 ### 2.5 Tracing — the tool for "which rule ate my packet"
 
@@ -107,7 +107,7 @@ table — including tables iptables created. With iptables-legacy you'd use
 | §2.2 LOG | forwarded ping logs PREROUTING, FORWARD, POSTROUTING only |
 | §2.3 | curl works; server→client SYN shows `lab-drop` in `dmesg`; the final rule's counter > 0 |
 | §2.4 | a drop in `inet lab` before the accept blocks 8080 despite iptables' ACCEPT |
-| §2.5 | `nft monitor trace` prints `rule … verdict accept` lines for both `ip filter FORWARD` and `inet lab fwd` |
+| §2.5 | `nft monitor trace` prints `rule … verdict accept` lines for both `ip filter FORWARD` and `inet lab forward` |
 
 ## 4. Break/fix
 

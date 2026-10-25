@@ -14,6 +14,7 @@ and it runs on netlab-c with no account or Windows install.
 - **netlab-c** (Docker + Containerlab): drills 01–06, 08, 10. Work from a local copy:
   `sudo -i; cp -r /workbook ~/wb; cd ~/wb/phase1-ccna-drills` (Docker can't bind-mount from the sshfs share).
 - **netlab-a** (namespaces): drills 07, 09, 11, 12, as root from `/workbook/phase1-ccna-drills/<drill>`.
+- Every Containerlab node also has `eth0` on 172.20.20.0/24: Containerlab's management link, not part of any drill. Ignore it in `ip addr`/`ip route` output; `lan-setup.sh` removes its default route so it can't carry lab traffic.
 - Shared topologies in [`topo/`](topo/): `routed` (3 FRR routers, 2 hosts), `lan` (2 bridges-as-switches, 4 hosts, a router), `dns` (CoreDNS + client).
 
 ## The course, mapped

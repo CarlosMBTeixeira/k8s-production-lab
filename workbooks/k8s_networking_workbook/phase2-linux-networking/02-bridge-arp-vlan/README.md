@@ -43,10 +43,14 @@ ip -d link show br0 | grep -o 'ageing_time [0-9]*'   # centiseconds; 30000 = 300
 # watch a flood: clear ns1's ARP cache and the bridge's FDB, then capture on the port to ns2
 ip -n ns1 neigh flush all
 bridge fdb flush dev br0 2>/dev/null || ip link set br0 type bridge fdb_flush
-tcpdump -nnei v2 &                     # in a second shell, or background it
+tcpdump -nnei v2 'arp or icmp' &      # in a second shell, or background it
 ip netns exec ns1 ping -c2 10.0.10.3
 kill %1
 ```
+
+The filter matters: drop it once and you'll see IPv6 MLD reports and router
+solicitations from every namespace (multicast, flooded like broadcast) bury
+the ARP.
 
 Write before running: which frames will `v2` (ns2's port) see? The ARP
 **request** is a broadcast and floods to every port. The ARP reply and the
@@ -78,7 +82,7 @@ ip -n ns3 addr flush dev eth0
 ip -n ns3 link add link eth0 name eth0.10 type vlan id 10
 ip -n ns3 addr add 10.0.10.33/24 dev eth0.10
 ip -n ns3 link set eth0.10 up
-tcpdump -nnei v3 -c4 &
+tcpdump -nnei v3 -c4 'vlan and (arp or icmp)' &
 ip netns exec ns1 ping -c2 10.0.10.33
 ```
 
@@ -101,8 +105,20 @@ iptables -S FORWARD | head -1
 iptables -L FORWARD -v -n | head -3           # watch the policy counter while pinging
 ```
 
-If `br_netfilter` is not loaded on your Docker version, `modprobe br_netfilter`
-and repeat. With it loaded and `bridge-nf-call-iptables=1`, **frames switched
+On a fresh netlab-c the first ping **works**: Docker (27.x, from the
+Containerlab installer) sets FORWARD to DROP at start but loads
+`br_netfilter` only on demand, so `lsmod` is empty and the sysctl doesn't
+exist yet (a plain `docker run` doesn't load it either). Bridged frames
+never reach iptables. Now load it, as every kubeadm node's prerequisites do,
+and repeat the ping:
+
+```bash
+modprobe br_netfilter
+ip netns exec d1 ping -c2 -W1 10.9.9.2        # now 100 % loss
+iptables -L FORWARD -v -n | head -3           # policy DROP counter rising
+```
+
+With it loaded and `bridge-nf-call-iptables=1`, **frames switched
 inside a bridge traverse the iptables FORWARD chain**, and Docker's FORWARD
 policy is DROP. To prove it, briefly:
 
@@ -123,7 +139,7 @@ that a bridge-based CNI switches without routing. Lab 2.10 hits this.
 | `bridge fdb show br br0` | one learned MAC per port, matching `ip -n nsX link show eth0` |
 | §2.3 ns1 → ns3 | 100 % loss before the trunk; `tcpdump -e` on `v3` shows `ethertype 802.1Q … vlan 10` after |
 | `bridge vlan show` | v1, v2: `10 PVID Egress Untagged`; v3: `10` and `20`, tagged |
-| §2.4 | ping fails with the sysctl at 1, works at 0; FORWARD policy counter rises while it fails |
+| §2.4 | ping works before `modprobe br_netfilter`; after it, fails with the sysctl at 1 and works at 0; FORWARD policy counter rises while it fails |
 
 ## 4. Break/fix
 

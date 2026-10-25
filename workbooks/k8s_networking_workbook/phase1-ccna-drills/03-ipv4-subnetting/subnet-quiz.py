@@ -14,7 +14,8 @@ n = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 score, t0 = 0, time.time()
 for i in range(1, n + 1):
     plen = random.choice([random.randint(8, 30), random.randint(20, 30), random.randint(24, 30)])
-    addr = ipaddress.IPv4Address(random.choice([10 << 24, (172 << 24) | (16 << 16), (192 << 24) | (168 << 16)]) + random.randint(0, 2**16 - 1))
+    base, free = random.choice([(10 << 24, 24), ((172 << 24) | (16 << 16), 20), ((192 << 24) | (168 << 16), 16)])
+    addr = ipaddress.IPv4Address(base + random.randint(0, 2**free - 1))   # anywhere in 10/8, 172.16/12, 192.168/16
     net = ipaddress.IPv4Network(f"{addr}/{plen}", strict=False)
     hosts = net.num_addresses - 2
     want = {

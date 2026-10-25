@@ -70,7 +70,7 @@ side is wrong and what's in between. The break/fix is one that doesn't work.
 | Check | Expected |
 |---|---|
 | quiz | your time and score recorded in the tracker |
-| §2.2 | h1 → h2 direct, h1 → h3 via 10.0.10.126; ping works |
+| §2.2 | h1 → h2 direct, h1 → h3 via 10.0.10.126; ping works (ping may count r1's redirect as `+1 errors`) |
 | §2.3 | with /24, `ip route get 10.0.10.130` shows `dev eth1` without `via` |
 
 ## 4. Break/fix

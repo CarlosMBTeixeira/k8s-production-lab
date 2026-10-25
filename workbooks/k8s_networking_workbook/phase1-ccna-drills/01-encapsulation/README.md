@@ -14,6 +14,7 @@ sudo -i; cp -r /workbook ~/wb 2>/dev/null; cd ~/wb/phase1-ccna-drills/topo
 containerlab deploy -t routed.clab.yml && bash routed-setup.sh
 v() { docker exec clab-p1r-$1 vtysh -c "$2"; }
 x() { docker exec clab-p1r-$1 sh -c "$2"; }
+cap() { ip netns exec clab-p1r-$1 tcpdump "${@:2}"; }   # netlab-c's tcpdump inside a node's netns (the FRR image has none)
 ```
 
 ## 2. Hands-on
@@ -29,11 +30,10 @@ x h1 'curl -s 172.16.2.10'            # hello from h2
 Capture the same request at three points, then compare:
 
 ```bash
-x h1 'tcpdump -nnei eth1 -c 6 -w /tmp/h1.pcap tcp port 80' &
-x r1 'tcpdump -nnei eth2 -c 6 -w /tmp/r1r2.pcap tcp port 80' &
-x h2 'tcpdump -nnei eth1 -c 6 -w /tmp/h2.pcap tcp port 80' &
-sleep 1; x h1 'curl -s 172.16.2.10 >/dev/null'; wait
-for p in h1 r1:r1r2 h2; do n=${p%%:*}; f=${p#*:}; docker cp clab-p1r-$n:/tmp/$f.pcap /tmp/$f.pcap; done
+cap h1 -nnei eth1 -c 6 -w /tmp/h1.pcap tcp port 80 &
+cap r1 -nnei eth2 -c 6 -w /tmp/r1r2.pcap tcp port 80 &
+cap h2 -nnei eth1 -c 6 -w /tmp/h2.pcap tcp port 80 &
+sleep 1; x h1 'curl -s 172.16.2.10 >/dev/null'; wait   # pcaps land in netlab-c's /tmp
 for f in h1 r1r2 h2; do echo "== $f"; tshark -r /tmp/$f.pcap -c1 -T fields -e eth.src -e eth.dst -e ip.src -e ip.dst -e ip.ttl -e ip.checksum -e tcp.srcport -e tcp.dstport; done
 tshark -r /tmp/h1.pcap -c1 -V | less         # every field of one SYN, per layer
 ```

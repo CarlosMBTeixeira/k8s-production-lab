@@ -16,6 +16,7 @@ cd ~/wb/phase1-ccna-drills/topo; containerlab deploy -t routed.clab.yml --reconf
 docker exec clab-p1r-r1 vtysh -c 'conf t' -c 'ip route 172.16.2.0/24 10.0.12.2'
 docker exec clab-p1r-r2 vtysh -c 'conf t' -c 'ip route 172.16.1.0/24 10.0.12.1'
 x() { docker exec clab-p1r-$1 sh -c "$2"; }
+cap() { ip netns exec clab-p1r-$1 tcpdump "${@:2}"; }   # netlab-c's tcpdump inside a node's netns (the FRR image has none)
 ```
 
 ## 2. Hands-on
@@ -25,7 +26,7 @@ x() { docker exec clab-p1r-$1 sh -c "$2"; }
 ```bash
 x h1 'ping -c1 -t 1 172.16.2.10'          # "Time to live exceeded" from 172.16.1.1 (r1)
 x h1 'ping -c1 -t 2 172.16.2.10'          # from r2
-x r1 'tcpdump -nni eth1 -c2 -v icmp' & sleep 1; x h1 'ping -c1 -t1 172.16.2.10 >/dev/null'; wait
+cap r1 -nni eth1 -c2 -v icmp & sleep 1; x h1 'ping -c1 -t1 172.16.2.10 >/dev/null'; wait
 x h1 'traceroute -n 172.16.2.10'          # UDP probes with TTL 1, 2, 3…
 x h1 'traceroute -n -I 172.16.2.10'       # ICMP probes; -T for TCP (what firewalls usually allow)
 ```
@@ -39,7 +40,7 @@ Shrink the r1–r2 link to 1400:
 
 ```bash
 x r1 'ip link set eth2 mtu 1400'; x r2 'ip link set eth1 mtu 1400'
-x r1 'tcpdump -nni eth2 -c4 -v icmp' &
+cap r1 -nni eth2 -c4 -v icmp &
 sleep 1; x h1 'ping -c1 -s 1472 -M dont 172.16.2.10 >/dev/null'; wait
 ```
 
@@ -57,7 +58,7 @@ Lab 2.09 builds on this for TCP (PMTUD, MSS clamping, blackholes).
 ### 2.3 Protocol number and DSCP
 
 ```bash
-x r1 'tcpdump -nni eth2 -c3 -v "icmp or tcp port 80"' &
+cap r1 -nni eth2 -c3 -v 'icmp or tcp port 80' &
 sleep 1; x h1 'ping -c1 -Q 0xb8 172.16.2.10 >/dev/null; curl -s 172.16.2.10 >/dev/null'; wait
 ```
 

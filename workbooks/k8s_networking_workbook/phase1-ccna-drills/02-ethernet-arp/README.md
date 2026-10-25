@@ -23,7 +23,8 @@ Hosts: h1 10.0.10.1, h2 .2 on sw1; h3 .3, h4 .4 on sw2; all one L2 segment.
 
 ```bash
 for h in h1 h2 h3 h4; do echo "$h $(x $h 'cat /sys/class/net/eth1/address')"; done   # note the MACs
-x sw1 'bridge fdb show br br0 | grep -v permanent'        # empty-ish: nothing learned yet
+x sw1 'bridge fdb show br br0 | grep -v permanent'        # already full: every host sent IPv6 DAD/MLD at link-up
+for s in sw1 sw2; do x $s 'bridge fdb flush dev br0'; done   # start clean
 x h1 'ping -c1 10.0.10.3 >/dev/null'
 x sw1 'bridge fdb show br br0 | grep -v permanent'        # h1's MAC on eth1, h3's MAC on eth3 (the inter-switch link)
 x sw2 'bridge fdb show br br0 | grep -v permanent'        # h3 on eth1, h1 on eth3
@@ -36,9 +37,9 @@ MAC. Behind sw1's eth3 sit all of sw2's hosts: one port, many MACs.
 
 ```bash
 x h1 'ip neigh flush all'; x sw1 'bridge fdb flush dev br0 2>/dev/null || true'
-x h2 'tcpdump -nnei eth1 -c4 arp or icmp' &
-x h4 'tcpdump -nnei eth1 -c4 arp or icmp' &
-x h1 'ping -c2 10.0.10.3 >/dev/null'; wait
+x h2 'timeout 5 tcpdump -nnei eth1 arp or icmp' &       # timeout, not -c: they'll see only one frame
+x h4 'timeout 5 tcpdump -nnei eth1 arp or icmp' &
+sleep 1; x h1 'ping -c2 10.0.10.3 >/dev/null'; wait
 x h1 'ip neigh'                                            # 10.0.10.3 lladdr <h3 MAC> REACHABLE
 ```
 
@@ -48,8 +49,15 @@ Predict before running: h2 and h4 see the ARP **request** (broadcast,
 
 ```bash
 x h4 'arping -c2 -U -I eth1 10.0.10.4'                    # gratuitous ARP: "this IP is at my MAC", unsolicited
-x h1 'ip neigh show 10.0.10.4'
+x h1 'ip neigh show 10.0.10.4'                            # empty: h1 never talked to .4
+x h1 'ping -c1 10.0.10.4 >/dev/null'; x h4 'arping -c2 -U -I eth1 10.0.10.4'
+x h1 'ip neigh show 10.0.10.4'                            # now there, refreshed by the GARP
 ```
+
+With `arp_accept=0` (the default), Linux **updates** an existing neighbour
+entry from a GARP but never **creates** one. A failover GARP only moves
+clients that were already talking to the VIP; the rest ARP on first use and
+get the new owner anyway.
 
 GARP is what VRRP, MetalLB L2 and kube-vip send on failover (drill 11, lab 4.02).
 

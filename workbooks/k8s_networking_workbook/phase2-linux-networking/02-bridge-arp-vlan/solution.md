@@ -18,6 +18,7 @@ for i in 1 2 3; do
 done
 # --- the fault ---
 bridge link set dev v2 learning off flood off
+ip link set v2 type bridge_slave fdb_flush   # drop what v2 learned from ns2's IPv6 DAD/MLD at link-up
 cat <<'T'
 
 TICKET  ns1 and ns3 talk fine. Nobody can reach ns2 (10.0.10.2).
@@ -32,13 +33,20 @@ MAC, so frames **to** ns2 are unknown unicast, and unknown unicast is not
 flooded to a port with `flood off`. Broadcasts still are (that's
 `bcast_flood`, a separate flag), so ARP works in both directions.
 
+The `fdb_flush` matters: ns2 sends IPv6 DAD and MLD frames the moment its
+link comes up, so the bridge has already learned its MAC on v2 before
+`learning off` lands. Turning learning off doesn't evict an entry; without
+the flush the fault stays hidden for the 300 s ageing time. In production
+the same race means a flag change can look like it "did nothing" until the
+FDB ages out.
+
 ## Diagnosis path
 
 | Beat | Answer |
 |---|---|
 | Hypothesis | ns1 resolves ns2's MAC (`ip -n ns1 neigh` → REACHABLE), so ARP works; unicast toward ns2 is lost inside the bridge. |
 | Tool | `tcpdump -nnei v2` while ns1 pings |
-| Expected if right | ARP request and ARP reply present, **no ICMP echo request** on v2. Same capture on v1 shows the requests leaving ns1. |
+| Expected if right | **No ICMP echo request** on v2. (ARP request and reply appear too if ns1's cache entry has expired: `ip -n ns1 neigh flush all` first to see them.) Same capture on v1 shows the requests leaving ns1. |
 | Tool 2 | `bridge fdb show br br0 \| grep -v permanent` |
 | Expected if right | MACs learned for v1 and v3, **none for v2**. |
 | Tool 3 | `bridge -d link show dev v2` |

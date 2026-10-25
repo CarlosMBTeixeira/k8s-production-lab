@@ -29,9 +29,9 @@ bash setup/netlab.sh up c            # netlab-c (3G, Docker + Containerlab) — 
 multipass shell netlab-a             # the workbook is mounted at /workbook
 ```
 
-**Why three VMs.** Docker loads `br_netfilter` and sets the iptables
-FORWARD policy to DROP. On a VM with Docker, a hand-built bridge or router
-silently drops forwarded traffic — a lesson worth having once (lab 2.02
+**Why three VMs.** Docker sets the iptables FORWARD policy to DROP. On a
+VM with Docker, a hand-built router silently drops forwarded traffic, and
+so does a hand-built bridge as soon as `br_netfilter` is loaded — a lesson worth having once (lab 2.02
 does it on purpose on netlab-c), not on every lab. netlab-a and netlab-b
 stay Docker-free.
 

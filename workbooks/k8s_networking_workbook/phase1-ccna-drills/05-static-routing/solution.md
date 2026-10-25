@@ -32,7 +32,7 @@ them, depending on what it has).
 | Tool | `v r1 'show ip route 172.16.2.10'` (or `x r1 'ip route get 172.16.2.10'`) |
 | Expected if right | `172.16.2.0/25 via 10.0.13.3`, not the /24. |
 | Tool 2 | `v r3 'show ip route 172.16.2.10'` |
-| Expected if right | no route (or only the connected links). |
+| Expected if right | **No output at all**: FRR answers a lookup that matches nothing with silence, not an error. r3 has no route to h2, and none back to h1 either, so it can't even send an ICMP unreachable. h1 sees plain timeouts. |
 | What would have told me sooner | Always look up the **address**, not the prefix you expect (`show ip route <ip>`): it shows the route actually chosen. |
 
 ## Fix

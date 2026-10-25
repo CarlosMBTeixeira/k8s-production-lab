@@ -15,6 +15,7 @@
 cd ~/wb/phase1-ccna-drills/topo; containerlab deploy -t routed.clab.yml --reconfigure && bash routed-setup.sh
 v() { docker exec clab-p1r-$1 vtysh -c "$2"; }
 x() { docker exec clab-p1r-$1 sh -c "$2"; }
+cap() { ip netns exec clab-p1r-$1 tcpdump "${@:2}"; }   # netlab-c's tcpdump inside a node's netns (the FRR image has none)
 ospf() { # router router-id networks...
   local r=$1 id=$2; shift 2; local args=(-c 'conf t' -c 'router ospf' -c "ospf router-id $id")
   for n in "$@"; do args+=(-c "network $n area 0"); done
@@ -46,7 +47,7 @@ with each other.
 ```bash
 v r1 'show ip ospf database'                 # Router LSAs (one per router), Network LSAs (one per DR segment)
 v r1 'show ip ospf database router 3.3.3.3'  # r3's links and costs, exactly as r1 knows them
-x r1 'tcpdump -nni eth2 -c3 ip proto 89'     # hellos to 224.0.0.5 (AllSPFRouters)
+cap r1 -nni eth2 -c3 ip proto 89     # hellos to 224.0.0.5 (AllSPFRouters)
 ```
 
 Every router holds the same map and runs Dijkstra on it independently —
