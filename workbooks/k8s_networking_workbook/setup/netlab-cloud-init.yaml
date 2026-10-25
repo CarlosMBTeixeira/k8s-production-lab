@@ -44,6 +44,8 @@ packages:
 runcmd:
   # bpftool ships per kernel; install the one matching the running kernel.
   - [bash, -c, "DEBIAN_FRONTEND=noninteractive apt-get install -y linux-tools-$(uname -r) || true"]
+  # sch_netem and a few other modules live in -extra on Ubuntu kernels.
+  - [bash, -c, "DEBIAN_FRONTEND=noninteractive apt-get install -y linux-modules-extra-$(uname -r) || true"]
   # pwru (Cilium's packet-where-are-you tracer), latest release.
   - [bash, -c, "V=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/cilium/pwru/releases/latest | sed -E 's#.*/tag/##'); curl -fsSL https://github.com/cilium/pwru/releases/download/$V/pwru-linux-amd64.tar.gz | tar -xz -C /usr/local/bin pwru || true"]
   - [bash, -c, "echo 'netlab ready' > /var/tmp/netlab-ready"]

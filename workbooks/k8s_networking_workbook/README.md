@@ -43,7 +43,7 @@ environment here is disposable, but read the box before running it.
 
 | Name | What | RAM | Used by |
 |---|---|---|---|
-| **netlab** | 2 plain Ubuntu 24.04 Multipass VMs (`netlab-a`, `netlab-b`); Containerlab + FRR inside `netlab-a` | ~4.5 GB | Phase 1, Phase 2, Phase 4 labs 01, 05 |
+| **netlab** | Plain Ubuntu 24.04 Multipass VMs: `netlab-a`, `netlab-b` (no Docker) for Phase 2; `netlab-c` with Docker + Containerlab + FRR | 3–6 GB | Phase 1 (c), Phase 2 (a, b), Phase 4 labs 01, 05 (c) |
 | **k8slab** | The repo's cluster: `LAB_WORKERS=2 bash ../../scripts/pipeline/main.sh`, option **0** (3.12: option 8; 4.07: option 3) | ~16 GB | Phase 3 labs 01, 02, 04, 05, 06, 09, 12 · Phase 4 lab 07 |
 | **kind** | Docker on the WSL host, configs in `setup/kind/` | 2–8 GB | Phase 3 labs 03, 07, 08, 10, 11, 13 · Phase 4 labs 02, 03, 04, 06, 08 |
 
@@ -137,7 +137,7 @@ Record the date and, for break/fix, the minutes to diagnose.
 
 ### Setup
 - [ ] `setup/install-tools.sh` run, versions recorded
-- [ ] `setup/netlab.sh up` works; `/workbook` visible in both VMs
+- [ ] `setup/netlab.sh up all` works; `/workbook` visible in all three VMs
 - [ ] kind cluster from `setup/kind/cilium.yaml` comes up and is deleted cleanly
 
 ### Phase 1 — drills
