@@ -1,0 +1,6 @@
+# Caddy serves HTTP/1.1, HTTP/2 and HTTP/3 (QUIC, UDP 443) on one site,
+# with a certificate from its own internal CA.
+https://quic.lab.local {
+    tls internal
+    respond "hello over {http.request.proto}\n"
+}

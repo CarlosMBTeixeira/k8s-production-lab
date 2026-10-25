@@ -7,14 +7,14 @@
 | **Where** | k8slab, 2 workers, **option 8** (Istio + Kiali) · WSL host |
 | **Risk** | Safe — `lab-mesh` only; the mesh install itself is the pipeline's |
 
-The Istio workbook (`../../istio_svc_mesh_workbook/`) covers operating the
+The Istio workbook (`../../../istio_svc_mesh_workbook/`) covers operating the
 mesh — routing, resilience, security policy. This lab is only the plumbing
 underneath, so the two don't overlap; its session 0 follows a request
 through Envoy's config and is the natural next read.
 
 ## 1. Prerequisites
 
-- Labs 2.04, 2.05, 3.01. `istioctl` on the host (`../../scripts/install-istioctl.sh`).
+- Labs 2.04, 2.05, 3.01. `istioctl` on the host (`../../../../scripts/install-istioctl.sh`).
 
 ```bash
 export KUBECONFIG=~/k8slab/kubernetes/admin.conf

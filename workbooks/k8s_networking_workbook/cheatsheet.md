@@ -239,12 +239,57 @@ istioctl proxy-config listeners|clusters|endpoints <pod>.<ns>; istioctl x descri
 
 ## BGP: FRR, MetalLB, Calico, Cilium
 <!-- 4.01–4.04, 4.08 -->
+```bash
+vtysh -c 'show bgp summary'                        # state / PfxRcd per neighbor; "Active" = NO TCP session
+vtysh -c 'show bgp neighbors <ip>'                 # state, last reset reason, timers, capabilities
+vtysh -c 'show bgp ipv4 unicast <prefix>'          # all paths, which is best and why
+vtysh -c 'show bgp neighbors <ip> advertised-routes|received-routes|routes'   # sent / got (soft-reconfig in) / accepted
+vtysh -c 'show ip prefix-list'                     # filters: watch for missing le/ge
+vtysh -c 'show bfd peers brief'
+dmesg | grep -i md5                                # MD5 mismatches only show in the kernel log
+tshark -r bgp.pcap -Y bgp -T fields -e bgp.type -e bgp.open.myas -e bgp.update.path_attribute.as_path
+# MetalLB
+kubectl -n metallb-system get ipaddresspool,l2advertisement,bgpadvertisement,bgppeer -o yaml
+arping -c3 <LB-IP>                                 # L2 mode: which MAC owns it
+# Calico
+kubectl -n kube-system exec <calico-node> -c calico-node -- birdcl -s /var/run/calico/bird.ctl show protocols|route
+calicoctl get bgpconfiguration default -o yaml; calicoctl get bgppeer -o wide; calicoctl get node <n> -o yaml | grep -i reflector
+# Cilium
+cilium bgp peers; cilium bgp routes advertised ipv4 unicast; kubectl get ciliumbgpnodeconfigs -o yaml
+```
+Two halves of every LoadBalancer: **allocation** (pool → `status.loadBalancer`) and **announcement** (advertisement → router's table).
+
 
 ## TLS, HTTP/2, QUIC
 <!-- 4.06 -->
+```bash
+openssl s_client -connect <host>:443 -servername <sni> -showcerts </dev/null | grep -E '^ [0-9] s:|i:'   # the chain AS SERVED
+openssl s_client -connect <host>:443 -servername <sni> -alpn h2,http/1.1 -brief </dev/null       # protocol, cipher, ALPN
+openssl verify -CAfile root.pem -untrusted int.pem leaf.pem
+openssl x509 -in cert.pem -noout -subject -issuer -dates -ext subjectAltName
+curl -v --http2 https://<host>/ 2>&1 | grep -iE 'ALPN|alt-svc'
+curl --cert client.pem --key client.key …          # mTLS
+curl -s url url url                                # ONE keep-alive connection: L4 balances it to one pod
+```
+`unable to get local issuer certificate` = chain incomplete or root unknown · `no alternative certificate subject name` = SAN/SNI · `certificate required` = mTLS · `no protocols available` = TLS version.
+
 
 ## Metrics and alerts
 <!-- 4.07 -->
+```promql
+node_nf_conntrack_entries / node_nf_conntrack_entries_limit
+rate(node_netstat_Tcp_RetransSegs[5m]) / rate(node_netstat_Tcp_OutSegs[5m])
+rate(node_netstat_TcpExt_ListenOverflows[5m])
+rate(node_network_receive_drop_total{device!~"lo|cali.*|tunl0|vxlan.*"}[5m])
+rate(node_softnet_dropped_total[5m])
+sum by (rcode) (rate(coredns_dns_responses_total[5m]))
+histogram_quantile(0.99, sum by (le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))
+```
+```bash
+curl -s localhost:9090/api/v1/rules | jq -r '.data.groups[].name'      # is my rule loaded at all?
+kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.ruleSelector}'
+```
+
 
 ---
 
@@ -280,3 +325,15 @@ one bad CoreDNS backend (policy, node, upstream) → per-backend flows; or connt
 
 **"Gateway returns 404 / 500 / 503"** [3.09, 3.13]
 404 route not attached (Accepted) · 500 backend unresolved (ResolvedRefs) · 503 no healthy endpoints.
+
+**"LB IP assigned, unreachable from outside"** [4.02–4.04]
+sessions Established? (no → OPEN/TCP: AS, MD5, port 179) → prefixes received? (no → advertisement/selector) → accepted? (no → router filter) → return path.
+
+**"Same name, different answer"** [4.05]
+`dig @<each resolver in the chain>` from each client; conditional forwarders for private zones.
+
+**"TLS fails for services, works in the browser"** [4.06]
+`-showcerts` — missing intermediate (browsers fetch it, clients don't).
+
+**"The alert never fired"** [4.07]
+rule loaded (`/api/v1/rules`)? → expression returns data? → `for:` longer than the incident?

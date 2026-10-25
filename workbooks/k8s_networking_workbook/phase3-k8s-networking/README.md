@@ -8,7 +8,7 @@ all three modes, CoreDNS, NetworkPolicy, Gateway API and the mesh datapath.
 
 | Env | Labs | Bring-up |
 |---|---|---|
-| **k8slab**, 2 workers, option 0 | 3.01, 3.02, 3.04, 3.05, 3.06, 3.09 | `LAB_WORKERS=2 bash ../../scripts/pipeline/main.sh` → 0 |
+| **k8slab**, 2 workers, option 0 | 3.01, 3.02, 3.04, 3.05, 3.06, 3.09 | from the workbook folder: `LAB_WORKERS=2 bash ../../scripts/pipeline/main.sh` → 0 |
 | **k8slab**, 2 workers, option 8 | 3.12 | same, → 8 (Istio + Kiali) |
 | **kind** | 3.03, 3.07, 3.08, 3.10, 3.11, 3.13 | per lab; `unset KUBECONFIG` first |
 

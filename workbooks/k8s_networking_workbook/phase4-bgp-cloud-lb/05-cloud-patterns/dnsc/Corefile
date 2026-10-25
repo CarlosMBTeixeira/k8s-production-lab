@@ -1,0 +1,22 @@
+# Cloud resolver for VPC-A (10.10.2.53). Plays three roles:
+#  - a private DNS zone linked to the VPC (privatelink.lab → the private endpoint IP)
+#  - an INBOUND endpoint: on-prem resolvers forward privatelink.lab here
+#  - an OUTBOUND rule: corp.lab is forwarded to the on-prem resolver
+privatelink.lab:53 {
+    hosts {
+        10.10.3.10 storage.privatelink.lab
+    }
+    log
+}
+corp.lab:53 {
+    forward . 172.20.2.53
+    log
+}
+.:53 {
+    # "the public internet's DNS" for this lab
+    hosts {
+        203.0.113.10 storage.privatelink.lab
+        fallthrough
+    }
+    log
+}

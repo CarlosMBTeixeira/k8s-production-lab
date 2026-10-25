@@ -1,0 +1,39 @@
+# Lab 4.07 — network alerts as a PrometheusRule. The release label is how
+# kube-prometheus-stack's Prometheus selects rules (ruleSelector), in any namespace.
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-netobs}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lab-network
+  namespace: lab-netobs
+  labels: {release: kube-prometheus-stack}
+spec:
+  groups:
+    - name: lab-network
+      rules:
+        - alert: NodeConntrackHigh
+          expr: node_nf_conntrack_entries / node_nf_conntrack_entries_limit > 0.8
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: "conntrack table {{ $value | humanizePercentage }} full on {{ $labels.instance }}"
+            runbook: "networking workbook: troubleshooting-playbook.md, layer 6"
+        - alert: CoreDNSServfailRatioHigh
+          expr: |
+            sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m]))
+              / sum(rate(coredns_dns_responses_total[5m])) > 0.05
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "{{ $value | humanizePercentage }} of DNS answers are SERVFAIL — check CoreDNS upstreams"
+        - alert: NodeTcpRetransmitRatioHigh
+          expr: |
+            rate(node_netstat_Tcp_RetransSegs[5m])
+              / rate(node_netstat_Tcp_OutSegs[5m]) > 0.02
+          for: 5m
+          labels: {severity: info}
+          annotations:
+            summary: "{{ $value | humanizePercentage }} of TCP segments retransmitted on {{ $labels.instance }}"
