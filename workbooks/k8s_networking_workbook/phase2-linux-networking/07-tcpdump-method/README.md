@@ -27,9 +27,13 @@ ip netns exec router tcpdump -nni r-s1   -w 3-router-out.pcap tcp port 8080 &
 ip netns exec server tcpdump -nni s1     -w 4-server.pcap  tcp port 8080 &
 sleep 1; ip netns exec client curl -s 10.2.2.2:8080 >/dev/null; sleep 1
 kill %1 %2 %3 %4
-mergecap -w all.pcap 1-client.pcap 2-router-in.pcap 3-router-out.pcap 4-server.pcap
-tshark -r all.pcap -T fields -e frame.time_relative -e frame.interface_name -e ip.src -e ip.dst -e tcp.flags.str 2>/dev/null | head -20
+mergecap -I none -w all.pcapng 1-client.pcap 2-router-in.pcap 3-router-out.pcap 4-server.pcap
+tshark -r all.pcapng -T fields -e frame.time_relative -e frame.interface_id -e ip.src -e ip.dst -e tcp.flags.str 2>/dev/null | head -20
+# interface_id = input file order: 0 client, 1 router-in, 2 router-out, 3 server
 ```
+
+`-I none` keeps one interface per input file. Without it, mergecap folds
+four identical pcap interfaces into one and every frame says `0`.
 
 `-nn` (no name or port resolution: resolution itself can hang on a broken
 network), `-e` adds MACs, `-w` keeps everything for later, `-s 128` cuts
@@ -66,19 +70,27 @@ in lab 2.09 when sizes don't match the MTU.
 ### 2.4 Read a conversation with tshark
 
 ```bash
-ip netns exec client tcpdump -nni c-eth0 -w dl.pcap tcp port 8080 &
+ip netns exec client tcpdump -nni c-eth0 -s 128 -w dl.pcap tcp port 8080 &   # -s 128: see below
 ip netns exec client curl -s -o /dev/null 10.2.2.2:8080/big.bin; kill %1
 tshark -r dl.pcap -q -z conv,tcp                       # bytes per direction, duration
 tshark -r dl.pcap -q -z io,stat,1                      # packets/bytes per second
-tshark -r dl.pcap -Y 'tcp.analysis.flags' | head       # retransmissions, dup ACKs, zero windows — empty here
+tshark -r dl.pcap -Y 'tcp.analysis.flags && !tcp.analysis.window_update' | head   # retransmissions, dup ACKs, zero windows — empty here
 tshark -r dl.pcap -Y 'tcp.flags.syn==1' -T fields -e tcp.options.mss_val -e tcp.window_size_value
 ```
+
+The 20 MB download takes about 15 ms here, in GRO-sized 64 KB segments.
+Without `-s 128`, tcpdump's ring buffer overflows (`N packets dropped by
+kernel`). The pcap then has gaps, and tshark reports `Previous segment not
+captured`: a **capture** artefact, not a network one. Always read tcpdump's
+"dropped by kernel" line before trusting a pcap's analysis flags. Window
+updates are excluded because they're normal flow control, not trouble
+(it's Wireshark's own "bad TCP" filter).
 
 ### 2.5 The patterns to recognise on sight
 
 | On the client capture | Means | Next capture |
 |---|---|---|
-| SYN, SYN, SYN (1 s, 2 s, 4 s …), nothing back | dropped on the way there, or the reply is lost | next hop toward the server |
+| SYN, SYN, SYN (1 s apart for the first 4 on kernel ≥ 6.5, then doubling), nothing back | dropped on the way there, or the reply is lost | next hop toward the server |
 | SYN → RST,ACK | reached a host with no listener (or a REJECT rule) | `ss -ltn` on the server |
 | SYN → ICMP unreachable | a router or firewall refused it; the ICMP's source says which | that hop |
 | SYN-ACK arrives, client sends RST | reply came from an address the client didn't call (NAT asymmetry, lab 2.05 §2.4c) | NAT hop |
@@ -90,9 +102,9 @@ tshark -r dl.pcap -Y 'tcp.flags.syn==1' -T fields -e tcp.options.mss_val -e tcp.
 
 | Check | Expected |
 |---|---|
-| §2.1 merged trace | each SYN appears 4 times (client, router in, router out, server) in time order, microseconds apart |
+| §2.1 merged trace | each SYN appears 4 times, `interface_id` 0→1→2→3, the SYN-ACK 3→2→1→0, microseconds apart |
 | §2.3 | segments larger than 1500 bytes while TSO/GSO is on |
-| §2.4 `tcp.analysis.flags` | no output on a clean link |
+| §2.4 `tcp.analysis.flags` (minus window updates) | no output (at most a stray frame) on a clean link; tcpdump reports 0 dropped by kernel |
 
 ## 4. Break/fix
 

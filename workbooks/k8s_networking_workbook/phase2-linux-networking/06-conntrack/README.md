@@ -49,8 +49,9 @@ $R conntrack -C                                     # count in this netns
 ### 2.2 UDP has no connection, conntrack invents one
 
 ```bash
-ip netns exec server socat -T5 UDP-LISTEN:5353,bind=10.2.2.2,fork,reuseaddr SYSTEM:'echo backend-A' &
-ip netns exec server socat -T5 UDP-LISTEN:5353,bind=10.3.3.2,fork,reuseaddr SYSTEM:'echo backend-B' &
+ip netns exec server socat -T5 UDP4-LISTEN:5353,bind=10.2.2.2,fork,reuseaddr SYSTEM:'echo backend-A' 2>/dev/null &
+ip netns exec server socat -T5 UDP4-LISTEN:5353,bind=10.3.3.2,fork,reuseaddr SYSTEM:'echo backend-B' 2>/dev/null &
+# UDP4-, not UDP-: socat 1.8 can't pick the family from bind= ("unknown address family 0")
 echo q | ip netns exec client socat -t1 - UDP:10.2.2.2:5353
 $R conntrack -L -p udp                              # [ASSURED]? UNREPLIED? note the timeout column
 ```
@@ -83,7 +84,7 @@ restarts turn into minutes of DNS timeouts. Lab 3.06 reproduces it in a cluster.
 ```bash
 $R iptables -t nat -A PREROUTING -d 10.9.9.9 -p tcp --dport 7000 -j DNAT --to-destination 10.2.2.2
 ip netns exec server socat TCP-LISTEN:7000,reuseaddr SYSTEM:'while sleep 2; do date; done' &
-ip netns exec client socat - TCP:10.9.9.9:7000 &    # prints a date every 2 s
+ip netns exec client socat -u TCP:10.9.9.9:7000 STDOUT &   # prints a date every 2 s (-u: never reads the terminal, so the job isn't stopped)
 sleep 5
 ip netns exec client tcpdump -nni c-eth0 -c6 tcp port 7000 &
 $R conntrack -F                                     # predict: what happens on the next server push?
@@ -93,7 +94,12 @@ sleep 5
 The next segment from the server creates a **new** entry in the reply
 direction with no NAT (`tcp_loose=1` lets conntrack pick up mid-stream
 flows). It reaches the client with source 10.2.2.2, which matches no socket,
-so the client answers with RST and the stream dies. Try `$R sysctl -w
+so the client's kernel answers with RST. The **server** takes the RST and
+tears its side down (`Connection reset by peer`, `date: write error`). The
+**client** never hears about it: its socket to 10.9.9.9 stays ESTABLISHED,
+the dates just stop, and `ss -tn` on the client still shows the connection.
+That half-open state is what applications see after a node's conntrack
+table is flushed under them. Try `$R sysctl -w
 net.netfilter.nf_conntrack_tcp_loose=0` and repeat: now the mid-stream
 packet is INVALID and the rule in §1 drops it — the stream hangs instead.
 
@@ -101,10 +107,10 @@ packet is INVALID and the rule in §1 drops it — the stream hangs instead.
 
 | Check | Expected |
 |---|---|
-| §2.1 events | the TCP state sequence above, ending in `[DESTROY]` |
+| §2.1 events | the TCP state sequence above; `[DESTROY]` arrives about 120 s after TIME_WAIT (`nf_conntrack_tcp_timeout_time_wait`), so leave `conntrack -E` running |
 | §2.3 after moving the rule | `backend-A` until `conntrack -D`, then `backend-B` |
 | §2.3 `conntrack -L` | `src=10.1.1.2 dst=10.9.9.9 sport=40000 dport=5353 … src=10.2.2.2 dst=10.1.1.2` |
-| §2.4 capture | `10.2.2.2.7000 > 10.1.1.2.x` then `10.1.1.2.x > 10.2.2.2.7000: Flags [R]` |
+| §2.4 capture | `10.2.2.2.7000 > 10.1.1.2.x` then `10.1.1.2.x > 10.2.2.2.7000: Flags [R]`; server socat exits, client socat hangs on an ESTABLISHED socket |
 
 ## 4. Break/fix
 

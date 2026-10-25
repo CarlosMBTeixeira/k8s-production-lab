@@ -49,11 +49,20 @@ tells you which by **how fast** it fails and **what came back**: RST,
 ICMP, or nothing.
 
 ```bash
-$C sysctl net.ipv4.tcp_syn_retries                  # 6 → retries at ~1, 3, 7, 15, 31, 63 s
+$C sysctl net.ipv4.tcp_syn_retries net.ipv4.tcp_syn_linear_timeouts   # 6 and 4 (kernel ≥ 6.5)
 $S iptables -A INPUT -p tcp --dport 9998 -j DROP
-$C tcpdump -nni c-eth0 -tttt -c4 'tcp[tcpflags] == tcp-syn' & $C curl -s -m20 10.2.2.2:9998; wait   # exponential backoff
+$C tcpdump -nni c-eth0 -ttt -c5 'tcp[tcpflags] == tcp-syn' & $C curl -s -m20 10.2.2.2:9998; wait   # predict the gaps
+$C sysctl -w net.ipv4.tcp_syn_linear_timeouts=0
+$C tcpdump -nni c-eth0 -ttt -c5 'tcp[tcpflags] == tcp-syn' & $C curl -s -m20 10.2.2.2:9998; wait   # again
 $S iptables -F INPUT
 ```
+
+The first capture shows retries **1 s apart**. Since kernel 6.5, the first
+`tcp_syn_linear_timeouts` (4) SYN retransmits are linear, and only then
+does backoff double. With it at 0 you get the textbook exponential gaps:
+1, 1, 2, 4 s, i.e. retries at about 1, 3, 7, 15 s. A filtered port on an
+older kernel (or a non-Linux client) takes noticeably longer to give up
+than one on Ubuntu 24.04.
 
 ### 2.3 UDP
 
@@ -80,7 +89,7 @@ wait
 | Check | Expected |
 |---|---|
 | §2.1 | SYN, SYN-ACK, ACK with ack = ISN+1; FIN exchange; a TIME_WAIT socket on the closer |
-| §2.2 | exit 7 instantly for RST and REJECT, exit 28 for DROP; SYN retries spaced 1, 2, 4… s |
+| §2.2 | exit 7 instantly for RST and REJECT, exit 28 for DROP; SYN retries 1 s apart with linear timeouts at 4, doubling with them at 0 |
 | §2.3 | data arrives with no reply; closed port → ICMP port unreachable |
 
 ## 4. Break/fix

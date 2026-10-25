@@ -20,7 +20,7 @@ cat dns/Corefile dns/lab.local.zone          # what the server knows
 ### 2.1 Authoritative answers
 
 ```bash
-c 'dig web.lab.local'                        # read: header flags (qr aa rd ra), QUESTION, ANSWER (TTL!), SERVER
+c 'dig web.lab.local'                        # read: header flags (qr aa rd — no ra: this zone block doesn't recurse), QUESTION, ANSWER (TTL!), SERVER
 c 'dig +short www.lab.local'                 # CNAME → web → A: the resolver follows the chain
 c 'dig +short MX lab.local; dig +short TXT lab.local; dig +short AAAA db.lab.local'
 c 'dig +short SRV _http._tcp.web.lab.local'  # priority weight port target — what Kubernetes serves for named ports
@@ -31,7 +31,7 @@ c 'dig +short SRV _http._tcp.web.lab.local'  # priority weight port target — w
 ```bash
 c 'dig example.com | grep -E "flags|IN\s+A"'      # no "aa": the answer came from elsewhere, cached here
 sleep 5; c 'dig +noall +answer example.com'      # TTL is lower: you're reading the cache
-c 'dig +trace example.com | grep -E "^\S+\s+[0-9]+\s+IN\s+(NS|A)" | head -12'   # root → com → example.com, iteratively
+c 'dig +trace example.com | grep Received'      # one line per step: local resolver (root hints) → a root server → a .com server → example.com's own NS
 ```
 
 ### 2.3 The three "no" answers
@@ -52,8 +52,13 @@ c 'cat /etc/resolv.conf'                          # nameserver 10.53.0.53, searc
 c 'getent hosts web'                              # works: the C library appends the search domain
 c 'dig +short web'                                # nothing: dig doesn't use the search list…
 c 'dig +short +search web'                        # …unless asked
-c 'tcpdump -nni eth1 -c6 udp port 53' & sleep 1; c 'getent hosts web >/dev/null'; wait   # see the name actually asked
+c 'tcpdump -nni eth1 -c4 udp port 53' & sleep 1; c 'getent hosts web >/dev/null'; wait   # see the name actually asked: AAAA and A, in parallel
 ```
+
+The client is netshoot (Alpine, **musl** libc), so this is musl's resolver:
+it sends A and AAAA together and prefers the AAAA answer. glibc on a node
+behaves the same for search/ndots and differs in details (sequential
+queries, `single-request`, `options rotate`).
 
 `ndots:N` = "a name with fewer than N dots is tried with the search
 domains **first**". Kubernetes pods default to `ndots:5` with three search
@@ -65,7 +70,7 @@ to correctness.
 | Check | Expected |
 |---|---|
 | §2.1 | `aa` set; www → web → 10.53.0.80; SRV `0 50 80 web.lab.local.` |
-| §2.2 | no `aa` for example.com; TTL decreasing; +trace walks `.`, `com.`, `example.com.` |
+| §2.2 | no `aa` for example.com; TTL decreasing; +trace: 4 `Received` lines — 10.53.0.53, a `*.root-servers.net`, a `*.gtld-servers.net`, example.com's NS |
 | §2.3 | NXDOMAIN with SOA; NOERROR with ANSWER: 0; timeout |
 | §2.4 | getent resolves `web`, plain dig doesn't, `+search` does; capture shows `web.lab.local` asked |
 
@@ -82,8 +87,9 @@ cd ~/wb/phase1-ccna-drills/08-dns && bash break.sh
 | Expected if right | |
 | What would have told me sooner | |
 
-**Done when** `c 'getent hosts www.example.com'` returns the same address as
-`c 'dig +short www.example.com'`, with the client's `ndots` left at 5.
+**Done when** `c 'getent hosts www.example.com'` returns a public address (one
+of `dig +short A`/`AAAA www.example.com`; musl prefers the AAAA) instead of
+10.53.0.99, with the client's `ndots` left at 5.
 
 Solution: [`solution.md`](solution.md).
 

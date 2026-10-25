@@ -36,7 +36,7 @@ Throughput with loss is roughly `MSS / RTT × 1.22 / √p` (Mathis):
 |---|---|
 | Hypothesis | Throughput collapse with clean ping = loss and/or latency on the data path only, somewhere between server and client. |
 | Tool | a client capture of the download, then `tshark -r client.pcap -Y tcp.analysis.retransmission \| wc -l` and `tshark -r client.pcap -Y tcp.analysis.ack_rtt -T fields -e tcp.analysis.ack_rtt \| sort -n \| tail -3` |
-| Expected if right | hundreds of retransmissions; RTT in `tcp.analysis.ack_rtt` ~20 ms instead of µs. |
+| Expected if right | dozens of retransmissions within a few seconds; `tcp.analysis.ack_rtt` in the tens of ms (20 ms netem delay plus queueing in netem's backlog; 40–60 ms measured) instead of µs. Capture with `-s 128` so tcpdump itself doesn't drop. |
 | Tool 2 | count server data segments on `r-s1` (router in) and `r-c` (router out) over the same 5 s |
 | Expected if right | fewer on `r-c` (~3 %), and `r-c` timestamps ~20 ms later than `r-s1` for the same `tcp.seq`. The router loses and delays them **on egress**, after routing and netfilter. |
 | Tool 3 | `ip netns exec router tc -s qdisc show dev r-c` and `tc filter show dev r-c` |

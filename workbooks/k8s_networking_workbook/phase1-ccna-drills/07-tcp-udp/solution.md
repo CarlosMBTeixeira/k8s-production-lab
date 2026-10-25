@@ -14,7 +14,7 @@ cat <<'T'
 TICKET  The app on the server namespace "is up":
           ip netns exec server curl -s localhost:8080      → hello from server
         but from the client:
-          ip netns exec client curl -m3 10.2.2.2:8080      → "Connection refused"
+          ip netns exec client curl -m3 10.2.2.2:8080      → "curl: (7) Failed to connect … Couldn't connect to server" (after 0 ms)
         No firewall rules anywhere (check: ip netns exec server nft list ruleset).
 T
 ```
