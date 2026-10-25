@@ -1,0 +1,14 @@
+# DON'T keep this. Same intent as 02, but the dash before podSelector makes
+# it TWO peers: "any pod in lab-np-front" OR "any app=frontend pod in
+# lab-np-back". Apply it, run the matrix, find who just got in, delete it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: or-mistake, namespace: lab-np-back}
+spec:
+  podSelector: {matchLabels: {app: api}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: lab-np-front}}
+        - podSelector: {matchLabels: {app: frontend}}
+      ports: [{protocol: TCP, port: 80}]

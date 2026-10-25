@@ -131,24 +131,111 @@ ip link set dev <if> xdpgeneric obj f.o sec xdp   # attach; "xdpgeneric off" to 
 
 ## Kubernetes: pods, Services, kube-proxy
 <!-- 3.01–3.03 -->
+```bash
+kubectl exec <pod> -- cat /sys/class/net/eth0/iflink        # → ifindex of the host-side veth
+ssh <node> "ip -o link | grep '^N:'"                          # cali… / lxc… / veth…
+ssh <node> "ip route | grep -E 'cali|tunl0|blackhole|bird'"   # Calico: /32 per pod, /26 blocks via tunl0
+calicoctl ipam show --show-blocks; calicoctl get ippool -o wide
+kubectl -n kube-system exec <calico-node> -c calico-node -- birdcl -s /var/run/calico/bird.ctl show protocols
+kubectl -n kube-system get cm kube-proxy -o jsonpath='{.data.config\.conf}' | grep -E '^mode|scheduler|strictARP'
+ssh <node> "curl -s localhost:10249/metrics | grep sync_proxy_rules_last_timestamp"   # frozen = stale node
+iptables-save -t nat | grep -- '-d <VIP>/32'                  # → KUBE-SVC → KUBE-SEP → DNAT
+kubectl get endpointslices -l kubernetes.io/service-name=<svc> -o wide   # the source of truth to compare
+ipvsadm -Ln -t <VIP>:<port>; cat /proc/net/ip_vs              # IPVS mode
+nft list map ip kube-proxy service-ips                        # nftables mode
+kubectl debug node/<n> -it --profile=sysadmin --image=nicolaka/netshoot:v0.13   # node netns + tools
+docker run --rm -it --net container:<kind-node> --privileged nicolaka/netshoot:v0.13   # same, for kind
+```
+
 
 ## DNS
 <!-- 1-08, 3.04 -->
+```bash
+kubectl exec <pod> -- cat /etc/resolv.conf                    # nameserver, search list, ndots
+kubectl exec <pod> -- dig +search +short <svc>                # resolve like the app does
+kubectl exec <pod> -- dig @<coredns-pod-ip> <fqdn>            # bypass the Service: pod → CoreDNS directly
+dig +short <svc>.<ns>.svc.cluster.local · SRV _<port>._tcp.<svc>.<ns>.svc.cluster.local · <pod>.<headless>.<ns>.svc.cluster.local
+kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}'
+kubectl -n kube-system logs -l k8s-app=kube-dns --tail=30     # i/o timeout → upstream; loop → resolv.conf
+ssh <node> "grep resolvConf /var/lib/kubelet/config.yaml"     # what CoreDNS forwards to (dnsPolicy Default)
+curl -s localhost:9153/metrics | grep -E 'coredns_dns_responses_total|forward'   # via port-forward svc/kube-dns 9153
+conntrack -S | grep -o 'insert_failed=[0-9]*'                 # the 5 s A/AAAA race
+```
+
 
 ## Policy
 <!-- 3.05, 3.08 -->
+```bash
+kubectl get netpol -A; kubectl describe netpol <name> -n <ns>   # describe reads selectors back in English
+calicoctl get networkpolicy -A -o wide; calicoctl get gnp       # K8s policies appear as knp.default.*
+ssh <node> "sudo iptables-save | grep -E '^:cali-(pi|po)-'"     # Calico per-policy chains (on the pod's node)
+ssh <node> "sudo dmesg | grep calico-packet"                    # Calico Log action
+kubectl get anp,banp                                            # admin policies (OVN-K/OpenShift) — invisible to get netpol
+kubectl get ccnp                                                # Cilium cluster-wide — invisible to get cnp -n
+```
+Rules: one peer with ns+pod selector = AND; two peers = OR; podSelector alone = this namespace; egress default-deny needs DNS UDP+TCP 53 to kube-system/kube-dns.
+
 
 ## Cilium and Hubble
 <!-- 3.07, 3.08, 3.13 -->
+```bash
+cilium status; cilium config view | grep -E 'kube-proxy-replacement|routing-mode|tunnel'
+X="kubectl -n kube-system exec <cilium-pod> -c cilium-agent --"
+$X cilium-dbg status --verbose | sed -n '/KubeProxyReplacement Details/,/^$/p'
+$X cilium-dbg service list; $X cilium-dbg bpf lb list       # Services as BPF maps
+$X cilium-dbg endpoint list; $X cilium-dbg identity list    # pods → identities
+$X cilium-dbg bpf ipcache list                              # IP → identity → tunnel endpoint
+$X cilium-dbg fqdn cache list                               # what toFQDNs has learned
+$X cilium-dbg monitor --type drop                           # live drops on that node
+$X cilium-health status
+cilium hubble port-forward &
+hubble observe -n <ns> --verdict DROPPED --last 20          # who, to whom, why
+hubble observe -n <ns> --protocol dns|http [--http-status 403] [--to-pod ns/pod]
+```
+Socket LB: pod captures show backend IPs, never the ClusterIP. Gateway/Ingress traffic = identity `ingress`. toFQDNs needs `rules.dns`.
+
 
 ## Gateway API
 <!-- 3.09 -->
+```bash
+kubectl get gatewayclass; kubectl -n <ns> get gateway <gw> -o yaml | sed -n '/^status:/,$p'   # Programmed, addresses
+kubectl -n <ns> get httproute <r> -o jsonpath='{range .status.parents[*].conditions[*]}{.type}={.status} ({.reason}){"\n"}{end}'
+#   Accepted=False NotAllowedByListeners → allowedRoutes · ResolvedRefs=False RefNotPermitted → ReferenceGrant · BackendNotFound → port/name
+openssl s_client -connect <ip>:443 -servername <host> </dev/null | openssl x509 -noout -subject -ext subjectAltName
+curl -sk --resolve <host>:443:<ip> https://<host>/
+kubectl -n envoy-gateway-system port-forward pod/<envoy> 19000 & curl -s localhost:19000/clusters   # Envoy's actual config
+```
+404 = no route attached · 500 = route attached, backend unresolved · 503 = backend has no healthy endpoints.
+
 
 ## OVN-Kubernetes and OpenShift
 <!-- 3.10, 3.11 -->
+```bash
+NB="kubectl -n ovn-kubernetes exec <ovnkube-node> -c nb-ovsdb -- ovn-nbctl"   # OpenShift: -n openshift-ovn-kubernetes … -c nbdb
+$NB show; $NB ls-list; $NB lr-list; $NB lsp-list <node>      # switches per node, cluster router, GR_<node>
+$NB lb-list | grep <VIP>                                       # Services = OVN load balancers
+$NB list ACL | grep -B5 <ns>                                   # NetworkPolicy/ANP ACLs
+ovn-sbctl show                                                 # chassis + geneve encap per node
+ovs-vsctl show; ovs-ofctl -O OpenFlow13 dump-flows br-int | wc -l
+ovnkube-trace -src-namespace <ns> -src <pod> -dst-namespace <ns> -dst <pod>|-service <svc> -tcp -dst-port <p> -loglevel 0
+kubectl get egressip -o yaml; kubectl get nodes -l k8s.ovn.org/egress-assignable   # EgressIP assigned to a node?
+kubectl get egressfirewall -A
+oc debug node/<n> → chroot /host → toolbox                     # OpenShift node shell + tools
+oc get network.operator cluster -o yaml                        # MTU, gateway mode, IPsec
+oc adm must-gather -- gather_network_logs
+```
+
 
 ## Mesh datapath
 <!-- 3.12 -->
+```bash
+kubectl debug -it <pod> --image=nicolaka/netshoot:v0.13 --profile=netadmin --target=<app-container> -- iptables-save -t nat   # ISTIO_* chains
+#   ISTIO_INBOUND → REDIRECT 15006 · ISTIO_OUTPUT → REDIRECT 15001 · --uid-owner 1337 RETURN · --dport X RETURN = excluded port
+cat /etc/cni/net.d/10-calico.conflist | jq -r '.plugins[].type'   # istio-cni chained after calico (on the node)
+tshark -i <cali> -Y 'tls.handshake.type == 1' -T fields -e tls.handshake.extensions_alpn_str   # mTLS on the wire
+istioctl proxy-config listeners|clusters|endpoints <pod>.<ns>; istioctl x describe pod <pod> -n <ns>
+```
+
 
 ## BGP: FRR, MetalLB, Calico, Cilium
 <!-- 4.01–4.04, 4.08 -->
@@ -178,3 +265,18 @@ source-dependent → `ip rule`, NAT rules matching `-s`, rp_filter, allowlists. 
 
 **"1 in N requests fail"** [2.10]
 N backends → list endpoints in the datapath vs source of truth → `conntrack -L -d <vip>` UNREPLIED.
+
+**"Services broken, pod IPs fine"** [3.02, 3.07]
+who implements Services here (kube-proxy mode / Cilium KPR / OVN)? → is it running on the client's node? → its rendered state vs EndpointSlice.
+
+**"Only pods on one node affected"** [3.01, 3.02]
+that node's agent (kube-proxy, calico-node, cilium) → underlay to/from that node (`tcpdump` encapsulated traffic on both NICs) → node firewall (`nft list ruleset`).
+
+**"Names fail, IPs work"** [3.04, 3.05, 3.08]
+`dig @<coredns-pod>` → egress policy to kube-dns (UDP+TCP 53, ns AND pod selector) → CoreDNS logs (upstream).
+
+**"Intermittent DNS"** [3.04, 3.13]
+one bad CoreDNS backend (policy, node, upstream) → per-backend flows; or conntrack `insert_failed` (A/AAAA race).
+
+**"Gateway returns 404 / 500 / 503"** [3.09, 3.13]
+404 route not attached (Accepted) · 500 backend unresolved (ResolvedRefs) · 503 no healthy endpoints.

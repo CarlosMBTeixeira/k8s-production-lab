@@ -1,0 +1,16 @@
+# Same route, three rules: header-pinned canary, 90/10 split, slow path with a timeout.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: web, namespace: lab-gw-apps}
+spec:
+  parentRefs: [{name: lab-gw, namespace: lab-gw}]
+  hostnames: ["web.lab.local"]
+  rules:
+    - matches: [{headers: [{name: x-canary, value: "true"}]}]
+      backendRefs: [{name: web-v2, port: 80}]
+    - matches: [{path: {type: PathPrefix, value: /slow}}]
+      timeouts: {request: 2s}
+      backendRefs: [{name: web-v1, port: 80}]
+    - backendRefs:
+        - {name: web-v1, port: 80, weight: 90}
+        - {name: web-v2, port: 80, weight: 10}

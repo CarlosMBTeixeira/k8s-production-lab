@@ -1,0 +1,18 @@
+# Plain HTTP on secure.lab.local → 301 to HTTPS; HTTPS served by the 443 listener.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: secure-redirect, namespace: lab-gw-apps}
+spec:
+  parentRefs: [{name: lab-gw, namespace: lab-gw, sectionName: http}]
+  hostnames: ["secure.lab.local"]
+  rules:
+    - filters: [{type: RequestRedirect, requestRedirect: {scheme: https, statusCode: 301}}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: secure, namespace: lab-gw-apps}
+spec:
+  parentRefs: [{name: lab-gw, namespace: lab-gw, sectionName: https}]
+  hostnames: ["secure.lab.local"]
+  rules:
+    - backendRefs: [{name: web-v1, port: 80}]

@@ -1,0 +1,24 @@
+# Capstone 3.13 — probe pods. They carry the TIER labels your policies must
+# select on (but not the app labels Services select), so verify.sh can test
+# "what may a frontend-tier pod reach?" from inside the tier.
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-cap-other}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: probe-frontend, namespace: lab-cap, labels: {tier: frontend}}
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: probe-api, namespace: lab-cap, labels: {tier: api}}
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: probe-other, namespace: lab-cap-other, labels: {tier: frontend}}   # right label, wrong namespace
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]

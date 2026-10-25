@@ -1,0 +1,7 @@
+# Owned by lab-gw-other: "HTTPRoutes in lab-gw-apps may point at my Services".
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: {name: allow-lab-gw-apps, namespace: lab-gw-other}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: lab-gw-apps}]
+  to: [{group: "", kind: Service}]

@@ -1,0 +1,13 @@
+# api accepts :80 from pods labelled app=frontend IN namespace lab-np-front.
+# One element with both selectors = AND.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-frontend-to-api, namespace: lab-np-back}
+spec:
+  podSelector: {matchLabels: {app: api}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: lab-np-front}}
+          podSelector: {matchLabels: {app: frontend}}
+      ports: [{protocol: TCP, port: 80}]

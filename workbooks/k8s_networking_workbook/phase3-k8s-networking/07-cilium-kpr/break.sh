@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Lab 3.07 — break/fix injector.
+# Run: WSL host, kind cluster lab-cilium up with Cilium installed (unset KUBECONFIG first)
+# Rebuilds the lab's starting state, injects one fault, prints the ticket.
+# The payload is base64 so a glance at this file does not spoil the
+# challenge. The plaintext and the fix are in solution.md — open it last.
+set -euo pipefail
+export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PHASE_DIR="$(cd "$LAB_DIR/.." && pwd)"
+export WB_DIR="$(cd "$PHASE_DIR/.." && pwd)"
+P='c2V0IC1ldW8gcGlwZWZhaWwKZXhwb3J0IEtVQkVDT05GSUc9IiRIT01FLy5rdWJlL2NvbmZpZyIKSz0ia3ViZWN0bCAtLWNvbnRleHQga2luZC1sYWItY2lsaXVtIjsgQ0k9ImNpbGl1bSAtLWNvbnRleHQga2luZC1sYWItY2lsaXVtIgokQ0kgc3RhdHVzID4vZGV2L251bGwgMj4mMSB8fCB7IGVjaG8gIkNpbGl1bSBub3QgaGVhbHRoeSBvbiBsYWItY2lsaXVtIOKAlCBmaW5pc2ggwqcyLjEgZmlyc3QiOyBleGl0IDE7IH0KJEsgYXBwbHkgLWYgIiRMQUJfRElSL3dlYi55YW1sIiA+L2Rldi9udWxsCiRLIC1uIGxhYi1jaWwgcm9sbG91dCBzdGF0dXMgZGVwbG95L3dlYiAtLXRpbWVvdXQ9MTIwcyA+L2Rldi9udWxsCiRLIC1uIGxhYi1jaWwgd2FpdCAtLWZvcj1jb25kaXRpb249UmVhZHkgcG9kL2NsaWVudCAtLXRpbWVvdXQ9MTIwcyA+L2Rldi9udWxsCiMgLS0tIHRoZSBmYXVsdCAtLS0KJENJIGNvbmZpZyBzZXQga3ViZS1wcm94eS1yZXBsYWNlbWVudCBmYWxzZSA+L2Rldi9udWxsCiRDSSBzdGF0dXMgLS13YWl0ID4vZGV2L251bGwgMj4mMSB8fCB0cnVlCnNsZWVwIDEwCmlmICRLIC1uIGxhYi1jaWwgZXhlYyBjbGllbnQgLS0gY3VybCAtcyAtbTMgLW8gL2Rldi9udWxsICIkKCRLIC1uIGxhYi1jaWwgZ2V0IHN2YyB3ZWIgLW8ganNvbnBhdGg9J3suc3BlYy5jbHVzdGVySVB9JykiOyB0aGVuCiAgZWNobyAiKG5vdGU6IG9uIHRoaXMgQ2lsaXVtIHZlcnNpb24gQ2x1c3RlcklQIGZyb20gcG9kcyBzdGlsbCBhbnN3ZXJzIOKAlCBjaGFzZSB0aGUgTm9kZVBvcnQgc3ltcHRvbSkiCmZpCmNhdCA8PCdUJwoKVElDS0VUICBBZnRlciAiYSBjb25maWcgY2xlYW51cCIgb24gbGFiLWNpbGl1bToKICAgICAgICAgIGt1YmVjdGwgLW4gbGFiLWNpbCBleGVjIGNsaWVudCAtLSBjdXJsIC1tMyB3ZWIgICAgICAg4oaSIGZhaWxzCiAgICAgICAgICBjdXJsIC1tMyBodHRwOi8vPGFueSBub2RlIElQPjozMDA4MCAgICAgICAgICAgICAgICAgICAgICAg4oaSIGZhaWxzIChmcm9tIHRoZSBXU0wgaG9zdCkKICAgICAgICBDYWxsaW5nIGEgd2ViIHBvZCBieSBpdHMgSVAgd29ya3MuIEFsbCBDaWxpdW0gcG9kcyBhcmUgUnVubmluZy4KICAgICAgICAiV2Ugb25seSByZW1vdmVkIHNldHRpbmdzIHdlIGRpZG4ndCByZWNvZ25pc2UuIgpUCg=='
+base64 -d <<<"$P" | bash -s -- "$@"

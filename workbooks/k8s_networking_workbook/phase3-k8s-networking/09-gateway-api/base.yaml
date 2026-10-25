@@ -1,0 +1,102 @@
+# Lab 3.09 — a Gateway owned by the platform (lab-gw), apps owned by a team
+# (lab-gw-apps), and a shared service owned by someone else (lab-gw-other).
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-gw}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-gw-apps
+  labels: {gateway-access: "true"}      # the listener only accepts routes from labelled namespaces
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-gw-other}
+---
+# TLS: a self-signed CA-less cert for *.lab.local, from a namespaced cert-manager Issuer.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: selfsigned, namespace: lab-gw}
+spec: {selfSigned: {}}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: lab-gw-tls, namespace: lab-gw}
+spec:
+  secretName: lab-gw-tls
+  dnsNames: ["*.lab.local"]
+  issuerRef: {name: selfsigned, kind: Issuer}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: {name: lab-gw, namespace: lab-gw}
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: "true"}}
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.lab.local"
+      tls:
+        mode: Terminate
+        certificateRefs: [{kind: Secret, name: lab-gw-tls}]
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: "true"}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web-v1, namespace: lab-gw-apps}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: web, version: v1}}
+  template:
+    metadata: {labels: {app: web, version: v1}}
+    spec:
+      containers: [{name: whoami, image: "traefik/whoami:v1.10.3", args: ["--name", "web-v1"], ports: [{containerPort: 80}]}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web-v2, namespace: lab-gw-apps}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: web, version: v2}}
+  template:
+    metadata: {labels: {app: web, version: v2}}
+    spec:
+      containers: [{name: whoami, image: "traefik/whoami:v1.10.3", args: ["--name", "web-v2"], ports: [{containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web-v1, namespace: lab-gw-apps}
+spec: {selector: {app: web, version: v1}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web-v2, namespace: lab-gw-apps}
+spec: {selector: {app: web, version: v2}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: shared, namespace: lab-gw-other}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: shared}}
+  template:
+    metadata: {labels: {app: shared}}
+    spec:
+      containers: [{name: whoami, image: "traefik/whoami:v1.10.3", args: ["--name", "shared"], ports: [{containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: shared, namespace: lab-gw-other}
+spec: {selector: {app: shared}, ports: [{port: 80, targetPort: 80}]}

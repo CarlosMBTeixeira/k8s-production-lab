@@ -1,0 +1,54 @@
+# Reference — capstone 3.13 policy set.
+# 1. default deny, both directions, whole namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: lab-cap}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+# 2. DNS for everyone, through the proxy (visibility + toFQDNs)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: dns, namespace: lab-cap}
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints: [{matchLabels: {k8s:io.kubernetes.pod.namespace: kube-system, k8s:k8s-app: kube-dns}}]
+      toPorts: [{ports: [{port: "53", protocol: ANY}], rules: {dns: [{matchPattern: "*"}]}}]
+---
+# 3. frontend: reachable from the Gateway (Cilium gives Gateway/Ingress traffic the reserved "ingress" identity)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: frontend, namespace: lab-cap}
+spec:
+  endpointSelector: {matchLabels: {tier: frontend}}
+  ingress:
+    - fromEntities: [ingress]
+      toPorts: [{ports: [{port: "80", protocol: TCP}]}]
+  egress:
+    - toEndpoints: [{matchLabels: {tier: api}}]
+      toPorts: [{ports: [{port: "80", protocol: TCP}]}]
+---
+# 4. api: GET only, from the frontend tier; may reach db and example.com
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: api, namespace: lab-cap}
+spec:
+  endpointSelector: {matchLabels: {tier: api}}
+  ingress:
+    - fromEndpoints: [{matchLabels: {tier: frontend}}]
+      toPorts: [{ports: [{port: "80", protocol: TCP}], rules: {http: [{method: GET}]}}]
+  egress:
+    - toEndpoints: [{matchLabels: {tier: db}}]
+      toPorts: [{ports: [{port: "5432", protocol: TCP}]}]
+    - toFQDNs: [{matchName: example.com}]
+      toPorts: [{ports: [{port: "80", protocol: TCP}, {port: "443", protocol: TCP}]}]
+---
+# 5. db: only from the api tier
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: db, namespace: lab-cap}
+spec:
+  endpointSelector: {matchLabels: {tier: db}}
+  ingress:
+    - fromEndpoints: [{matchLabels: {tier: api}}]
+      toPorts: [{ports: [{port: "5432", protocol: TCP}]}]

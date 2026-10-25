@@ -1,2 +1,6 @@
 # Written by setup/netlab.sh env — IPs change on every rebuild.
 setup/netlab.env
+
+# Saved by break scripts so the original can be restored.
+**/.Corefile.orig
+**/.*.orig

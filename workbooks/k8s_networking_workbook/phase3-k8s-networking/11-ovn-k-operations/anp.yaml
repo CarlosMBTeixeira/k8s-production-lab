@@ -1,0 +1,33 @@
+# AdminNetworkPolicy (cluster-scoped, evaluated BEFORE any NetworkPolicy) and
+# BaselineAdminNetworkPolicy (evaluated AFTER, the fallback). Requires the
+# policy.networking.k8s.io CRDs and ANP support enabled in OVN-K.
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-ovn-untrusted, labels: {env: untrusted}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: intruder, namespace: lab-ovn-untrusted}
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]
+---
+apiVersion: policy.networking.k8s.io/v1alpha1
+kind: AdminNetworkPolicy
+metadata: {name: lab-deny-untrusted}
+spec:
+  priority: 10
+  subject:
+    namespaces: {matchLabels: {kubernetes.io/metadata.name: lab-ovn}}
+  ingress:
+    - name: deny-untrusted
+      action: Deny
+      from: [{namespaces: {matchLabels: {env: untrusted}}}]
+---
+# The namespace owner tries to allow everyone. The ANP still wins.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-all-ingress, namespace: lab-ovn}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress: [{}]

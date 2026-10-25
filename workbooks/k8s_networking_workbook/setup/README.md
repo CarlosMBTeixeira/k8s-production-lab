@@ -80,6 +80,11 @@ namespace.
 
 ## kind
 
+**Before any kind command: `unset KUBECONFIG`.** kind writes its context
+into whatever `$KUBECONFIG` points at; with k8slab's `admin.conf` exported,
+it would land in that file. kind contexts belong in `~/.kube/config`
+(`kind-<name>`, selected automatically on create).
+
 Configs in `setup/kind/`, all 1 control plane + 2 workers:
 
 | File | Cluster | CNI | kube-proxy | Labs |

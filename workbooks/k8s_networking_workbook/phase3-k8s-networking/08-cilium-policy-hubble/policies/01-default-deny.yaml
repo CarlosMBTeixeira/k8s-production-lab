@@ -1,0 +1,7 @@
+# Plain Kubernetes NetworkPolicy — Cilium enforces these too. Deny all in lab-cil.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: lab-cil}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
