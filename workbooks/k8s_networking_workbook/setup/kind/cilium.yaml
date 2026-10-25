@@ -1,0 +1,15 @@
+# kind cluster "lab-cilium" — no CNI, no kube-proxy: Cilium provides both (labs 3.07, 3.08, 3.13, 4.04)
+# Create:  kind create cluster --config setup/kind/cilium.yaml
+# Delete:  kind delete cluster --name lab-cilium
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: lab-cilium
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16
