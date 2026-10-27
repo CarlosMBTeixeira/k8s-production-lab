@@ -55,11 +55,18 @@ allowed by the first peer). A YAML dash turned an AND into an OR.
 ### 2.1 Where Calico enforces it
 
 ```bash
-calicoctl get networkpolicy -A -o wide          # your K8s policies, as knp.default.<name>, order 1000
 NODE=$(kubectl -n lab-np-back get pod -l app=api -o jsonpath='{.items[0].spec.nodeName}')
-ssh ${NODE/worker-/w-} "sudo iptables-save -t filter | grep -E '^:cali-(pi|po)-' | head"   # one chain per policy
-ssh ${NODE/worker-/w-} "sudo iptables-save -t filter | grep -A8 'knp.default.allow-frontend-to-api' | head -20"
+ssh ${NODE/worker-/w-} "sudo iptables-save -t filter | grep -E '^:cali-(pi|po)-' | head"   # one chain per policy, hashed names
+ssh ${NODE/worker-/w-} "sudo iptables-save -t filter | grep 'KubernetesNetworkPolicy lab-np-back/allow-frontend-to-api'"
+ssh ${NODE/worker-/w-} "sudo iptables-save -t filter | grep -cE '^:cali-(tw|fw)-'"          # one pair per local pod
 ```
+
+On Calico 3.33 the chain names are hashes (`cali-pi-_5xQo…`); each rule
+carries a comment naming its source, `KubernetesNetworkPolicy <ns>/<name>
+ingress|egress` or `GlobalNetworkPolicy <name> …`, and that's what you grep.
+`calicoctl get networkpolicy` lists only Calico's own NetworkPolicies now;
+Kubernetes ones (`kubectl get netpol -A`) no longer appear there as
+`knp.default.<name>`, though older Calico and older docs show them that way.
 
 Policy is enforced on the **node hosting the selected pod**, in the `cali-tw-<veth>`
 (to workload) / `cali-fw-<veth>` (from workload) chains that jump to the
