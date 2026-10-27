@@ -34,8 +34,10 @@ learned over that link and traffic takes the r3 path.
 | Hypothesis | Neighbors see each other but never reach Full → they disagree on something in the DBD exchange: MTU is the classic. |
 | Tool | `v r1 'show ip ospf neighbor'` |
 | Expected if right | r2 in `ExStart` or `Exchange`, never `Full`. |
-| Tool 2 | `docker logs clab-p1r-r1 2>&1 \| grep -i mtu \| tail -2` and `x r1 'ip link show eth2'; x r2 'ip link show eth1'` |
-| Expected if right | "MTU mismatch" / "MTU size is larger"; 1500 vs 1400. |
+| Tool 2 | `v r1 'show ip ospf interface eth2'; v r2 'show ip ospf interface eth1'` (or `ip link show` on both) |
+| Expected if right | `MTU 1500 bytes` on r1, `MTU 1400 bytes` on r2: two ends of one link. |
+| Tool 3 | the log, on **r2** (the smaller-MTU side is the one that rejects): `docker exec clab-p1r-r2 vtysh -c 'conf t' -c 'log file /tmp/ospf.log'; sleep 10; docker exec clab-p1r-r2 grep -i mtu /tmp/ospf.log` |
+| Expected if right | `Packet[DD]: Neighbor 1.1.1.1 MTU 1500 is larger than [eth1:10.0.12.2]'s MTU 1400`. Nothing in `docker logs`: the daemons run detached, so `log stdout` never reaches the container's stdout. |
 | What would have told me sooner | OSPF stuck in ExStart = MTU, every time. The real-world version: a jumbo-frame NIC on one side of a link. |
 
 ## Fix

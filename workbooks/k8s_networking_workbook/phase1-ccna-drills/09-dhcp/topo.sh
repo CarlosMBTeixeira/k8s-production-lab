@@ -20,7 +20,10 @@ up() {
     port dgw eth0; port dsrv eth0; port dcli eth0
     ip -n dgw addr add 10.80.0.1/24 dev eth0; ip -n dgw addr add 10.81.0.1/32 dev lo
     ip -n dsrv addr add 10.80.0.2/24 dev eth0
-    ip netns exec dsrv dnsmasq --interface=eth0 --bind-interfaces --port=0 --user=root --group=root \
+    # --no-ping: by default dnsmasq pings a new address before offering it and
+    # delays the Offer ~3 s, so the client re-sends Discover and the capture
+    # shows Discover/Offer twice instead of a clean DORA.
+    ip netns exec dsrv dnsmasq --interface=eth0 --bind-interfaces --port=0 --user=root --group=root --no-ping \
         --dhcp-range=10.80.0.100,10.80.0.150,255.255.255.0,2m \
         --dhcp-option=option:router,10.80.0.1 --dhcp-option=option:dns-server,10.80.0.53 \
         --dhcp-leasefile=/var/tmp/dsrv.leases --pid-file=/var/tmp/dsrv.pid \

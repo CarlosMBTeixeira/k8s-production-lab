@@ -35,7 +35,7 @@ like real NICs do.
 | Tool | `ip netns exec ms ping -c2 -M do -s 1472 10.1.1.2` then `-s 1372` |
 | Expected if right | 1472: silence (not "Frag needed"); 1372: works. Something between 1400 and 1500 dies without a word. |
 | Tool 2 | captures on `r2-w` and `r1-w` during the 1472 ping |
-| Expected if right | leaves r2-w (length 1500), never appears on r1-w. |
+| Expected if right | leaves r2-w (tcpdump prints `length 1480`, the ICMP payload of a 1500-byte packet), never appears on r1-w. |
 | Tool 3 | `ip -n mr1 link show r1-w; ip -n mr2 link show r2-w` |
 | Expected if right | `mtu 1400` vs `mtu 1500` on the two ends of one link. |
 | What would have told me sooner | Compare MTU on **both ends** of every link in the path; any mismatch is a silent drop. In Kubernetes this is the pod MTU vs the tunnel MTU (lab 3.06), or a cloud VPC with jumbo frames peered to one without. |

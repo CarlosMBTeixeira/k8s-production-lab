@@ -41,11 +41,14 @@ cat /var/tmp/dsrv.leases; tail -8 /var/tmp/dsrv.log
 The lease is 2 minutes, so renewal (T1) happens at ~1 minute:
 
 ```bash
-ip netns exec dsw tcpdump -nnvi br0 -c2 'port 67 or port 68' &
 ip netns exec dcli busybox udhcpc -i eth0 -s $PWD/udhcpc-script.sh -f -t 1 &     # keep running this time
-sleep 75; kill %2; wait
+sleep 3                                                     # let its own DORA finish first
+ip netns exec dsw tcpdump -nnvi br0 -c2 'port 67 or port 68'   # waits ~1 min for T1
+kill %1
 ```
 
+Start the capture after the client has its lease: a fresh `udhcpc`
+always begins with a full DORA, and `-c2` would stop on its Discover/Offer.
 The renewal is a **unicast** Request/ACK straight to the server — no
 broadcast. A client that can't reach its server at T1 keeps trying, then
 broadcasts at T2 (87.5 %), and loses the address at expiry.
@@ -62,7 +65,7 @@ on Linux) converts the broadcast into a unicast to the server, filling in
 | Check | Expected |
 |---|---|
 | §2.1 | Discover/Offer/Request/ACK; dcli gets 10.80.0.1xx/24 and a default route via 10.80.0.1; pings 10.81.0.1 |
-| §2.2 | a unicast Request/ACK pair about a minute in |
+| §2.2 | a unicast Request/ACK pair about a minute in: `10.80.0.1xx.68 > 10.80.0.2.67`, then the ACK back |
 
 ## 4. Break/fix
 

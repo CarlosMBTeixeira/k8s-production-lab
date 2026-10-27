@@ -45,6 +45,12 @@ ip netns exec mr2 tcpdump -nni r2-s 'icmp or (tcp and greater 1400)' -c 8 &
 ip netns exec mc curl -s -o /dev/null -w '%{http_code} %{size_download}\n' 10.2.2.2:8080/big.bin
 ```
 
+The data segments show `length 7240` or more: the server's veth has TSO/GSO
+on, so tcpdump sees super-segments the kernel would split later. r2 still
+checks each one against the 1400 link (per-segment size 1448 + 40) and
+answers `need to frag (mtu 1400)`. The break/fix turns offloads off to get
+real 1500-byte packets.
+
 ### 2.2 The blackhole
 
 Someone "hardens" r2 by dropping ICMP it originates:
@@ -63,7 +69,17 @@ hangs" is the PMTUD-blackhole signature.
 
 ### 2.3 Three fixes
 
-Apply each, verify, then remove it before trying the next.
+Apply each, verify, then remove it before trying the next. (b) and (c)
+only prove something with the blackhole in place and no PMTU cached, so
+start each of them with:
+
+```bash
+ip netns exec mr2 iptables -C OUTPUT -p icmp --icmp-type fragmentation-needed -j DROP 2>/dev/null \
+  || ip netns exec mr2 iptables -A OUTPUT -p icmp --icmp-type fragmentation-needed -j DROP
+ip -n ms route flush cache
+```
+
+Without that, (b) right after (a) downloads fine with no clamp at all.
 
 **(a) Let the ICMP through.** The right fix.
 `ip netns exec mr2 iptables -D OUTPUT -p icmp --icmp-type fragmentation-needed -j DROP`
@@ -80,7 +96,8 @@ ip netns exec mc curl -s -o /dev/null -w '%{http_code}\n' 10.2.2.2:8080/big.bin
 
 The client still says MSS 1460; the server receives 1360 (1400 − 40). The
 server never sends a segment that needs PMTUD. This is what VPN gateways,
-cloud NAT gateways and many CNIs do.
+cloud NAT gateways and many CNIs do. Remove it before (c):
+`ip netns exec mr1 iptables -t mangle -F`
 
 **(c) Let TCP find it without ICMP** (PLPMTUD, RFC 4821):
 
@@ -90,16 +107,17 @@ ip -n ms route flush cache
 ip netns exec mc curl -s -o /dev/null -w '%{http_code} %{time_total}\n' 10.2.2.2:8080/big.bin
 ```
 
-Slower to start (it waits for a timeout, then probes smaller), but it
-survives a blackhole.
+Slower to start (it waits for a timeout, then probes smaller; ~6 s here),
+but it survives a blackhole. Put it back afterwards:
+`ip netns exec ms sysctl -w net.ipv4.tcp_mtu_probing=0`
 
 ## 3. Verification
 
 | Check | Expected |
 |---|---|
 | §2.1 | `Frag needed and DF set (mtu = 1400)` from 10.2.2.1; `ip route get` shows `mtu 1400` |
-| §2.2 | small request 200; big.bin hangs until `-m10` (exit code 28) |
-| §2.3 a, b, c | big.bin `200 20971520` each time |
+| §2.2 | small request works; big.bin prints `200` (the headers fit), then hangs until `-m10` (exit code 28) |
+| §2.3 a, b, c | big.bin `200` each time (c: after a few seconds) |
 | §2.3 b capture on ms | `mss 1360` in the SYN |
 
 ## 4. Break/fix
@@ -116,7 +134,8 @@ bash break.sh      # rebuilds this topology, injects a fault (no iptables involv
 | What would have told me sooner | |
 
 **Done when** big.bin downloads and `ip netns exec ms ping -c2 -M do -s 1472
-10.1.1.2` either succeeds or returns "Frag needed".
+10.1.1.2` gets an answer: "Frag needed … (mtu = 1400)", or `local error:
+message too long, mtu=1400` once the PMTU is cached. Silence is not done.
 
 <details><summary>Hint (only after 20 minutes)</summary>
 

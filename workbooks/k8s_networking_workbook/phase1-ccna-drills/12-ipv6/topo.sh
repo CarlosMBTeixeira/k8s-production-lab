@@ -8,7 +8,7 @@ down() { for n in "${NS[@]}"; do ip netns pids $n 2>/dev/null | xargs -r kill 2>
 up() {
     down
     for n in "${NS[@]}"; do ip netns add $n; ip -n $n link set lo up; done
-    ip link add eth0 netns h6a type veth peer name r-a netns r6
+    ip link add r-a netns r6 type veth peer name eth0 netns h6a   # eth0 as the peer: the first name also clashes with the root netns eth0
     ip link add r-b netns r6 type veth peer name eth0 netns h6b
     for l in "h6a eth0" "r6 r-a" "r6 r-b" "h6b eth0"; do set -- $l; ip -n $1 link set $2 up; done
     ip -n h6a addr add fd00:1::10/64 dev eth0 nodad; ip -n h6a addr add 10.6.1.10/24 dev eth0

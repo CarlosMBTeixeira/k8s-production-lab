@@ -23,7 +23,9 @@ down() {
 up() {
     down
     for n in "${NS[@]}"; do ip netns add "$n"; ip -n "$n" link set lo up; done
-    ip link add eth0 netns mc  type veth peer name r1-c netns mr1
+    # The eth0 end is always the peer: a veth's first name is checked against
+    # the root netns too, which has its own eth0 ("File exists").
+    ip link add r1-c netns mr1 type veth peer name eth0 netns mc
     ip link add r1-w netns mr1 type veth peer name r2-w netns mr2
     ip link add r2-s netns mr2 type veth peer name eth0 netns ms
 

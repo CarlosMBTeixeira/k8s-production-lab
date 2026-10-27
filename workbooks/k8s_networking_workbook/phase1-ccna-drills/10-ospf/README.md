@@ -57,13 +57,18 @@ link state, versus BGP's path vector (lab 4.01).
 
 ```bash
 docker exec clab-p1r-r1 vtysh -c 'conf t' -c 'interface eth2' -c 'ip ospf cost 100'
-sleep 5; x h1 'traceroute -n 172.16.2.10'    # now via r3
+sleep 5; x h1 'traceroute -n 172.16.2.10'    # now via r3: 172.16.1.1, 10.0.13.3, 10.0.12.2, h2
 docker exec clab-p1r-r1 vtysh -c 'conf t' -c 'interface eth2' -c 'no ip ospf cost'
 for r in r1:eth2 r2:eth1; do docker exec clab-p1r-${r%%:*} vtysh -c 'conf t' -c "interface ${r#*:}" -c 'ip ospf hello-interval 1' -c 'ip ospf dead-interval 3'; done
 x h1 'ping -i0.2 -c50 172.16.2.10' | tail -2 &
 sleep 2; x r2 'ip link set eth1 down'; wait   # loss ≈ dead interval… or instant, if the link-down is detected locally
 x r2 'ip link set eth1 up'
 ```
+
+In the cost-100 traceroute, r2 shows up as **10.0.12.2**, not 10.0.23.2: a
+router answers traceroute from the interface it uses to reach the sender,
+and r2's own best path back to h1 is still the direct r1–r2 link. The
+return path is not the forward path.
 
 A link that goes **down** is noticed at once; a neighbor that silently
 stops talking is noticed after the dead interval — the same lesson as BFD
@@ -75,7 +80,7 @@ in lab 4.01.
 |---|---|
 | §2.1 | three Full adjacencies; `O` routes for every remote subnet; h1 → h2 via r2 |
 | §2.2 | 3 router LSAs in the database; hellos every 10 s on 224.0.0.5 |
-| §2.3 | cost 100 moves the path to r3; failover with only a few lost pings |
+| §2.3 | cost 100 moves the path to r3; failover loses 0 to a few pings (both veth ends see the link go down at once) |
 
 ## 4. Break/fix
 

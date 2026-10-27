@@ -44,9 +44,13 @@ ip -n pod link set eth0 up; ip -n pod link set lo up
 On netlab-a:
 
 ```bash
-tcpdump -nnei $UP udp port 4789 -c4 &
-ip netns exec pod ping -c2 10.200.0.2
+timeout 5 tcpdump -nnei $UP udp port 4789 &
+ip netns exec pod ping -c2 10.200.0.2; wait
 ```
+
+The new links also send IPv6 DAD and MLD (`ff02::…`) and an IGMP report
+through the tunnel in their first seconds; skip those and find the ARP and
+ICMP.
 
 Read one encapsulated packet aloud: outer Ethernet (VM MACs) → outer IP
 (A_IP → B_IP) → UDP (random source port → 4789) → VXLAN header (VNI 100) →
@@ -98,10 +102,16 @@ Get each pod's MAC (`ip -n pod link show eth0`) and on each host add the
 PEER_POD_MAC=<the other host's pod eth0 MAC>
 PEER_POD_IP=10.200.0.$((3-N))
 bridge fdb add $PEER_POD_MAC dev vx100 dst $PEER self permanent   # MAC → which VTEP
-ip -n pod neigh add $PEER_POD_IP lladdr $PEER_POD_MAC dev eth0 nud permanent   # skip ARP entirely
-ip netns exec pod ping -c2 $PEER_POD_IP
-tcpdump -nni $UP udp port 4789 -c20 | grep -c ARP                 # 0: no ARP crosses the tunnel
+ip -n pod neigh replace $PEER_POD_IP lladdr $PEER_POD_MAC dev eth0 nud permanent   # skip ARP entirely
+ip -n pod neigh show                                              # PERMANENT, not STALE
+timeout 15 tcpdump -nni $UP udp port 4789 > /tmp/vx.txt &
+ip netns exec pod ping -c10 -q $PEER_POD_IP; wait
+grep -c VXLAN /tmp/vx.txt; grep -c ARP /tmp/vx.txt                # 20 and 0: no ARP crosses the tunnel
 ```
+
+`replace`, not `add`: §2.1's ARP left a STALE entry, `add` fails with
+"File exists", and that dynamic entry keeps sending unicast ARP probes
+through the tunnel.
 
 For BUM traffic (if you didn't pin ARP), the head-end replication entry
 is `bridge fdb append 00:00:00:00:00:00 dev vx100 dst <peer>` — one per peer.
