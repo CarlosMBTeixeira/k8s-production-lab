@@ -32,23 +32,31 @@ ip netns exec vsw tcpdump -nni br0 -c3 vrrp                  # adverts from the 
 ### 2.2 Failover
 
 ```bash
-ip netns exec vh ping -i0.2 -c60 10.91.0.10 | tail -2 &
-ip netns exec vsw tcpdump -nnei br0 -c4 'vrrp or arp' &
-sleep 3; kill "$(cat /var/tmp/kA.pid)"                       # the master's keepalived dies
-wait
+ip netns exec vsw tcpdump -nnei br0 'vrrp or arp' > /tmp/vrrp.txt &
+ip netns exec vh ping -i0.2 -c50 10.91.0.10 | tail -2 &
+sleep 3; ip -n vA link set eth0 down                         # the master's LAN link dies
+sleep 11; kill %1
 ip -n vB -br addr show eth0                                  # VIP moved
 ip -n vh neigh show 10.90.0.1                                # now vB's MAC — updated by gratuitous ARP
+grep -v 'vrid 51' /tmp/vrrp.txt | head                       # vB's first advert, then its burst of GARPs
 ```
 
-Count the lost pings: ~3–4 s = 3 missed adverts + skew. VRRP sends
-**gratuitous ARP** from the new master so hosts update their cache
-immediately instead of waiting for it to expire.
+Count the lost pings: ~14 at 0.2 s ≈ 3 s = 3 missed adverts + skew. VRRP
+sends **gratuitous ARP** from the new master so hosts update their cache
+immediately instead of waiting for it to expire. (vA's GARPs in the
+capture before the failure are `garp_master_refresh 5`: the master
+re-announces every 5 s.)
+
+Killing only vA's keepalived (`kill "$(cat /var/tmp/kA.pid)"`) moves the VIP
+too, but loses **nothing**: vA still routes, so the host's packets to vA's
+MAC keep flowing until the GARP moves them to vB. A failover test that
+kills the daemon proves less than one that kills the link.
 
 ### 2.3 Preemption
 
 ```bash
-ip netns exec vA keepalived -P -f /var/tmp/kA.conf -p /var/tmp/kA.pid -r /var/tmp/kA-vrrp.pid
-sleep 3; ip -n vA -br addr show eth0                         # vA takes the VIP back: higher priority preempts
+ip -n vA link set eth0 up
+sleep 6; ip -n vA -br addr show eth0                         # vA takes the VIP back (~4 s): higher priority preempts
 ```
 
 Preemption causes a second, avoidable blip. `nopreempt` (with `state
@@ -60,7 +68,7 @@ what you want for stateful things like an API endpoint.
 | Check | Expected |
 |---|---|
 | §2.1 | VIP on vA; adverts `vrid 51 prio 150` each second |
-| §2.2 | a few seconds of loss; VIP on vB; host's neighbour entry changes MAC; GARP in the capture |
+| §2.2 | ~3 s of loss (~14 pings); VIP on vB; host's neighbour entry changes to vB's MAC; vB's GARPs in the capture |
 | §2.3 | VIP back on vA |
 
 ## 4. Break/fix

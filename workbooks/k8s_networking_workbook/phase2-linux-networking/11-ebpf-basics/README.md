@@ -63,15 +63,19 @@ can change between kernels. That's the whole trade-off.
 
 ```bash
 ip netns exec router iptables -A FORWARD -p tcp --dport 8080 -j DROP
-pwru --output-tuple 'host 10.2.2.2 and tcp dst port 8080' &
+pwru --output-tuple 'host 10.2.2.2 and tcp dst port 8080' > /tmp/pwru.txt 2>&1 &
+sleep 10      # it attaches ~1,650 kprobes first; tail /tmp/pwru.txt shows "Listening for events" when ready
 ip netns exec client curl -s -m2 10.2.2.2:8080
 kill %1
+grep -B3 kfree_skb_reason /tmp/pwru.txt | awk '{print $NF}'
 ip netns exec router iptables -F FORWARD
 ```
 
-The output lists every kernel function the skb went through, in order,
-ending at `kfree_skb_reason(SKB_DROP_REASON_NETFILTER_DROP)` right after
-`nf_hook_slow`. It works across namespaces because kprobes are global.
+The output lists every kernel function the skb went through, in order:
+`ip_rcv` … `ip_forward` … `nf_hook_slow`, then
+`kfree_skb_reason(SKB_DROP_REASON_NETFILTER_DROP)`. Freeing calls follow it,
+then the same trace again for each retransmitted SYN, so search for the
+drop rather than reading the last line. It works across namespaces because kprobes are global.
 This is the fastest answer to "it enters and never leaves" on a node.
 
 ### 2.4 XDP: a drop before everything
@@ -86,7 +90,10 @@ ip netns exec server tcpdump -nni s1 -c3 icmp &     # predict: what does tcpdump
 ip netns exec client ping -c3 -W1 10.2.2.2; sleep 1; kill %1
 ip netns exec client curl -s 10.2.2.2:8080          # TCP still passes
 sysctl -w kernel.bpf_stats_enabled=1
-bpftool prog show name xdp_drop_icmp                # run_cnt rises with each packet
+ip netns exec client ping -c2 -W1 10.2.2.2 >/dev/null
+bpftool prog show name xdp_drop_icmp                # run_cnt rises with each packet (counted only while stats are on)
+bpftool net show                                    # empty: it's per network namespace…
+ip netns exec server bpftool net show               # …here: xdp: s1(2) generic id N
 ip -n server link set dev s1 xdpgeneric off
 ```
 
@@ -107,11 +114,11 @@ What tcpdump sees, by drop location:
 
 | Check | Expected |
 |---|---|
-| §2.1 `bpftool net show` | empty for lab veths at first; after §2.4 `s1(…) generic id N` under xdp |
+| §2.1 `bpftool net show` | empty at first; after §2.4, `ip netns exec server bpftool net show` lists `s1(2) generic id N` under xdp |
 | §2.2 state tracer | `10.1.1.2:<port> -> 10.2.2.2:8080 2 -> 1` (SYN_SENT → ESTABLISHED) etc. |
-| §2.2 drop reasons | the NETFILTER_DROP number dominates while the DROP rule is in place |
-| §2.3 pwru | last line `kfree_skb_reason … NETFILTER_DROP` |
-| §2.4 | ping fails, tcpdump shows nothing, curl works, `run_cnt` > 0 |
+| §2.2 drop reasons | the NETFILTER_DROP number (11 on kernel 6.8) appears, one per SYN, while the DROP rule is in place |
+| §2.3 pwru | `nf_hook_slow` followed by `kfree_skb_reason(SKB_DROP_REASON_NETFILTER_DROP)` |
+| §2.4 | ping fails, tcpdump shows `0 packets captured`, curl works, `run_cnt` > 0 |
 
 ## 4. Break/fix
 

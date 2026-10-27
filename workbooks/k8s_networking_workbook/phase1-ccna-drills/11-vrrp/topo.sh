@@ -10,6 +10,10 @@ NS=(vsw vA vB vh vup)
 down() {
     for r in A B; do [ -f /var/tmp/k$r.pid ] && kill "$(cat /var/tmp/k$r.pid)" 2>/dev/null; rm -f /var/tmp/k$r*.pid; done
     for n in "${NS[@]}"; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null || true; ip netns del $n 2>/dev/null || true; done
+    # Wait for keepalived to exit: on the way out it deletes its pid file, and
+    # would delete the one the next `up` just wrote.
+    for _ in $(seq 50); do pgrep -f '/var/tmp/k[AB]\.conf' >/dev/null || break; sleep 0.2; done
+    rm -f /var/tmp/k[AB]*.pid
 }
 conf() { # name prio vrid
 cat > /var/tmp/k$1.conf <<C
@@ -28,6 +32,7 @@ C
 }
 start() { ip netns exec v$1 keepalived -P -f /var/tmp/k$1.conf -p /var/tmp/k$1.pid -r /var/tmp/k$1-vrrp.pid; }
 up() {
+    local vrid_b="${1:-51}"   # read it now: the link loop below reuses $1 via `set --`
     down
     for n in "${NS[@]}"; do ip netns add $n; ip -n $n link set lo up; done
     ip -n vsw link add br0 type bridge; ip -n vsw link set br0 up
@@ -41,12 +46,13 @@ up() {
     ip link add up-b netns vB type veth peer name b netns vup
     ip -n vA addr add 10.91.1.1/30 dev up-a; ip -n vup addr add 10.91.1.2/30 dev a
     ip -n vB addr add 10.91.2.1/30 dev up-b; ip -n vup addr add 10.91.2.2/30 dev b
-    for l in "vA up-a" "vB up-b" "vup a" "vup b"; do set -- $l; ip -n $1 link set $2 up; done
+    # `dev` is required: a bare "a" would parse as `address`.
+    for l in "vA up-a" "vB up-b" "vup a" "vup b"; do set -- $l; ip -n $1 link set dev $2 up; done
     ip -n vup addr add 10.91.0.10/32 dev lo
     ip -n vA route add 10.91.0.10/32 via 10.91.1.2; ip -n vB route add 10.91.0.10/32 via 10.91.2.2
     ip -n vup route add 10.90.0.0/24 nexthop via 10.91.1.1 nexthop via 10.91.2.1
     for r in vA vB; do ip netns exec $r sysctl -qw net.ipv4.ip_forward=1; done
-    conf A 150 51; conf B 100 "${1:-51}"
+    conf A 150 51; conf B 100 "$vrid_b"
     start A; start B
     sleep 4
     echo "topo 11: up — VIP 10.90.0.1; host vh; server 10.91.0.10"

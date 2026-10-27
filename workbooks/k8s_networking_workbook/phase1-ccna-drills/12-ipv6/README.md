@@ -47,12 +47,16 @@ default routers; this drill sets addresses statically.)
 ```bash
 $A ping -6 -c2 fd00:2::10; $A ping -c2 10.6.2.10
 $A traceroute -6 -n fd00:2::10
-$B python3 -m http.server 8080 >/dev/null 2>&1 &
+$B python3 -m http.server 8080 --bind :: >/dev/null 2>&1 &
 sleep 1; $B ss -ltn | grep 8080                # *:8080 — one socket, both families
 $A curl -s -o /dev/null -w '%{http_code}\n' 'http://[fd00:2::10]:8080/'
 $A curl -s -o /dev/null -w '%{http_code}\n' http://10.6.2.10:8080/
 kill %1
 ```
+
+Without `--bind ::` Python's server listens on `0.0.0.0:8080` only and the
+IPv6 curl fails: a dual-stack socket is something the application asks for
+(an `AF_INET6` socket on `::` with `IPV6_V6ONLY` off).
 
 ### 2.4 No fragmentation in the network
 
@@ -89,7 +93,9 @@ bash break.sh
 | Expected if right | |
 | What would have told me sooner | |
 
-**Done when** `$A ping -6 -c2 fd00:2::10` works and h6b is still "hardened" in a way that makes sense.
+**Done when** `$A curl -s -m3 'http://[fd00:2::10]:8080/'` works, `ip -n r6 -6 neigh show dev r-b`
+shows h6b REACHABLE, and h6b is still "hardened" in a way that makes sense
+(if that means "no ping", `ping -6` to it failing is correct).
 
 Solution: [`solution.md`](solution.md).
 

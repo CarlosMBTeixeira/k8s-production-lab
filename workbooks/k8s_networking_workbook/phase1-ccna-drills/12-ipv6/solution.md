@@ -5,7 +5,7 @@
 <!--FAULT-->
 ```bash
 bash "$LAB_DIR/topo.sh" up >/dev/null
-setsid ip netns exec h6b python3 -m http.server 8080 >/dev/null 2>&1 < /dev/null &
+setsid ip netns exec h6b python3 -m http.server 8080 --bind :: >/dev/null 2>&1 < /dev/null &
 # --- the fault ---
 ip netns exec h6b ip6tables -A INPUT -p ipv6-icmp -j DROP
 ip -n r6 -6 neigh flush all
@@ -41,7 +41,8 @@ untouched (ARP isn't IP, so iptables-style ICMP rules don't affect it).
 ```bash
 $B ip6tables -D INPUT -p ipv6-icmp -j DROP
 $B ip6tables -A INPUT -p ipv6-icmp --icmpv6-type echo-request -j DROP    # the hardening they meant
-$A ping -6 -c2 fd00:2::1; $A curl -s -m3 -o /dev/null -w '%{http_code}\n' 'http://[fd00:2::10]:8080/' || true
+sleep 3      # r6 is still finishing the failed resolution from before the fix; a curl right away still fails
+$A curl -s -m3 -o /dev/null -w '%{http_code}\n' 'http://[fd00:2::10]:8080/'     # 200
 ip -n r6 -6 neigh show dev r-b                                            # REACHABLE
 ```
 

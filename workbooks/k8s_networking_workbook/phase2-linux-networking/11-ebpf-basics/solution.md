@@ -30,8 +30,8 @@ captures on `r-s1` show nothing leaving, and there is no netfilter rule to find.
 | Beat | Answer |
 |---|---|
 | Hypothesis | SYNs enter the router (`r-c`), don't leave (`r-s1`), netfilter is empty → dropped by something else in the router's datapath: tc or BPF. |
-| Tool | `pwru --output-tuple 'host 10.2.2.2 and tcp dst port 8080'` during a curl |
-| Expected if right | the trace passes routing and `ip_finish_output`, reaches `__dev_queue_xmit` / `tcf_classify`, and ends in `kfree_skb_reason` with a TC drop reason (`TC_EGRESS` on recent kernels). |
+| Tool | `pwru --output-tuple 'host 10.2.2.2 and tcp dst port 8080'` during a curl (as in §2.3: to a file, wait ~10 s for it to attach, then `grep -B3 kfree_skb_reason`) |
+| Expected if right | the trace passes `ip_forward` and `ip_finish_output2`, reaches `__dev_queue_xmit` → `tc_run` → `tcf_classify` → `tcf_action_exec`, then `kfree_skb_reason(SKB_DROP_REASON_TC_EGRESS)` (kernel 6.8). |
 | Tool 2 | `ip netns exec router tc filter show dev r-s1 egress` (and `bpftool net show` inside the netns for BPF ones) |
 | Expected if right | `flower … ip_proto tcp dst_port 8080 … action order 1: gact action drop` |
 | What would have told me sooner | `tc -s filter show` / `tc qdisc show` on both interfaces of the hop where the packet vanishes, right after `nft list ruleset`. And the table from §2.4: "not on the egress capture" includes "dropped by tc egress". |

@@ -42,7 +42,8 @@ iptables -t nat -L LAB-SVC-WEB -v -n
 ```
 
 Why 1/3, then 1/2, then everything? Each rule only sees what the previous
-ones didn't take. Compare with a real node later: `iptables-save -t nat |
+ones didn't take. The counters show what each rule **took** (≈10 each),
+not what it saw: 30 reach the first rule, ~20 the second, ~10 the third. Compare with a real node later: `iptables-save -t nat |
 grep -A4 'KUBE-SVC-'` (lab 3.02) has the same shape.
 
 ### 2.2 From a pod on the same bridge
@@ -89,6 +90,11 @@ for i in 1 2 3; do bridge link set dev vb$i hairpin on; done
 ip netns exec b1 bash -c 'for i in $(seq 9); do curl -s -m2 10.96.100.10 || echo FAIL; done' | sort | uniq -c
 ```
 
+Both halves are needed; try each alone and the FAILs come back. Without
+hairpin mode the frame can't leave by the port it arrived on (br_netfilter
+bridges a DNATed frame whose new destination is on the same bridge). Without
+the SNAT, b1 receives a SYN from its own address and drops it as a martian.
+
 ### 2.4 NodePort
 
 ```bash
@@ -118,6 +124,7 @@ ipvsadm -A -t 10.96.100.10:80 -s rr
 for i in 1 2 3; do ipvsadm -a -t 10.96.100.10:80 -r 10.50.0.1$i:8080 -m; done   # -m = masquerade (NAT) mode
 ipvsadm -Ln
 for i in $(seq 9); do curl -s 10.96.100.10; done             # strict rotation, not random
+sleep 3                                                      # the stats are summed every ~2 s: all zeros right after
 ipvsadm -Ln --stats; ipvsadm -Lnc | head                     # per-backend counters, IPVS's own connection table
 ipvsadm -E -t 10.96.100.10:80 -s lc                          # switch scheduler live
 ```
@@ -132,11 +139,11 @@ ARP for **any** local address on **any** interface, which is why IPVS mode
 
 | Check | Expected |
 |---|---|
-| §2.1 | ~10/10/10 split; `LAB-SVC-WEB` counters ≈ 30, 20, 10 down the chain |
+| §2.1 | ~10/10/10 split; `LAB-SVC-WEB` counters ≈ 10, 10, 10 (what each rule took) |
 | §2.2 | hangs before br_netfilter, works after |
-| §2.3 | ~3 FAIL out of 9 before, 0 after |
+| §2.3 | ~3 FAIL out of 9 before (and with only SNAT or only hairpin), 0 with both |
 | §2.4 | from the WSL host, b1/b2/b3 answer; backend logs show `10.50.0.1` as client |
-| §2.5 | `ipvsadm -Ln` lists 3 real servers `Masq`; curls rotate b1 b2 b3 b1 … |
+| §2.5 | `ipvsadm -Ln` lists 3 real servers `Masq`; curls rotate in a fixed order (here b3 b2 b1 b3 …); `--stats` 3 conns each |
 
 ## 4. Break/fix
 

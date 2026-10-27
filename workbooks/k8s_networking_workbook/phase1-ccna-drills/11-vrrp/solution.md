@@ -9,11 +9,10 @@ bash "$LAB_DIR/topo.sh" up 52 >/dev/null
 ip -n vB route del 10.91.0.10/32 2>/dev/null || true
 cat <<'T'
 
-TICKET  Hosts on 10.90.0.0/24 report a flaky gateway: connections to the
-        server (10.91.0.10) stall for several seconds, then recover, then
-        stall again.
-          ip netns exec vh ping -c40 -i0.25 10.91.0.10
-        "We added a second router (vB) for redundancy last week."
+TICKET  Since a second router (vB) was added for redundancy last week,
+        hosts on 10.90.0.0/24 can't reach the server (10.91.0.10):
+          ip netns exec vh ping -c20 -i0.25 10.91.0.10
+        vA, the original gateway, is unchanged and still routes to it.
 T
 ```
 <!--/FAULT-->
@@ -21,9 +20,11 @@ T
 vB was configured with `virtual_router_id 52` while vA uses 51. Each
 router ignores the other's adverts (different group), sees no master for
 its own group, and becomes master: **both** hold 10.90.0.1 and both refresh
-gratuitous ARP every 5 s. The host's gateway MAC flips between them — and
-vB was never finished: it has **no route to the server**. Whenever the
-host's cache points at vB, traffic stalls.
+gratuitous ARP every 5 s. Here they started together, so their refreshes
+run in step and vB's always lands last: the host's gateway MAC stays on vB.
+(On a real segment the timers drift and the gateway flaps instead.) And vB
+was never finished: it has **no route to the server**, hence the
+`Destination Net Unreachable` from 10.90.0.3.
 
 Two problems, one symptom: the split brain makes the untested backup
 visible. Fixing only the VRID hides vB's missing route until the day vA
@@ -31,7 +32,7 @@ fails.
 
 | Beat | Answer |
 |---|---|
-| Hypothesis | Intermittent gateway problems with VRRP = both routers think they're master (split brain), i.e. they don't see each other's adverts. |
+| Hypothesis | The new router is answering for the gateway (`Unreachable` comes from 10.90.0.3), yet vA is still healthy → both routers think they're master (split brain): they don't see each other's adverts. |
 | Tool | `ip -n vA -br addr show eth0; ip -n vB -br addr show eth0` |
 | Expected if right | the VIP on **both**. |
 | Tool 2 | `ip netns exec vsw tcpdump -nni br0 -c4 vrrp` |
