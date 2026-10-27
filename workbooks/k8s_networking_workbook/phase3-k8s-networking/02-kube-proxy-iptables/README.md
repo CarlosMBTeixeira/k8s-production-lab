@@ -37,11 +37,11 @@ alert on: if it stops moving, that node's Services are frozen.
 ### 2.2 Follow the ClusterIP
 
 ```bash
-ssh w-1 "sudo iptables-save -t nat" > /tmp/w1-nat.txt
+ssh w-1 "sudo iptables-save -t nat" > /tmp/w1-nat.txt   # "Warning: iptables-legacy tables present": empty leftovers, ignore. The rules are in iptables-nft.
 grep "$VIP" /tmp/w1-nat.txt                            # KUBE-SERVICES → KUBE-SVC-XXXX
 SVC=$(grep -- "-d $VIP/32" /tmp/w1-nat.txt | grep -o 'KUBE-SVC-[A-Z0-9]*' | head -1)
 grep -- "-A $SVC " /tmp/w1-nat.txt                     # probability cascade → KUBE-SEP-*
-grep -A2 -- "-N KUBE-SEP" /tmp/w1-nat.txt | head; grep -- "lab-svc/web" /tmp/w1-nat.txt | grep DNAT
+grep -- '-A KUBE-SEP-' /tmp/w1-nat.txt | grep 'lab-svc/web:http'   # per endpoint: hairpin MARK-MASQ, then DNAT
 grep -E 'KUBE-MARK-MASQ|KUBE-POSTROUTING' /tmp/w1-nat.txt | head
 ```
 
@@ -87,14 +87,23 @@ the node that received it.
 ```bash
 kubectl -n lab-svc patch svc web-np -p '{"spec":{"externalTrafficPolicy":"Local"}}'
 for n in $W1 $W2; do echo "== $n"; curl -s -m3 http://$n:30080 | grep -E 'Hostname|RemoteAddr' || echo "  no answer"; done
-ssh w-1 "sudo iptables-save -t nat | grep -E 'KUBE-(EXT|SVL|XLB)' | grep lab-svc"
+ssh w-1 "sudo iptables-save -t nat | grep -E 'KUBE-(EXT|SVL)' | grep lab-svc"                  # no KUBE-SVL jump on the node without the pod
+ssh w-1 "sudo iptables-save -t filter | grep 'lab-svc/web-np:http has no local endpoints'"     # the DROP is in the filter table
 ```
 
 Now `RemoteAddr` is 10.215.138.1 — the real client — and the node without a
-local endpoint drops the connection (its chain says "has no local
-endpoints"). That's why cloud LBs health-check `healthCheckNodePort` with
-`Local`: `kubectl -n lab-svc get svc web-np -o jsonpath='{.spec.healthCheckNodePort}'`,
-then `curl -s $W1:<port>` vs `$W2:<port>` (one says `localEndpoints: 1`).
+local endpoint drops the connection (`KUBE-EXTERNAL-SERVICES … has no local
+endpoints … -j DROP`, in the **filter** table). That's why cloud LBs
+health-check `healthCheckNodePort` with `Local`. Kubernetes only allocates
+that port for `type: LoadBalancer`, so switch the Service over for a moment
+(k8slab's MetalLB hands it an external IP from the VM subnet):
+
+```bash
+kubectl -n lab-svc patch svc web-np -p '{"spec":{"type":"LoadBalancer"}}'
+HC=$(kubectl -n lab-svc get svc web-np -o jsonpath='{.spec.healthCheckNodePort}')
+curl -s $W1:$HC; curl -s $W2:$HC              # "localEndpoints": 0 on one node, 1 on the other
+kubectl -n lab-svc patch svc web-np -p '{"spec":{"type":"NodePort"}}'
+```
 
 ```bash
 kubectl -n lab-svc patch svc web-np -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'
@@ -117,7 +126,7 @@ kubectl -n lab-svc patch svc web -p '{"spec":{"sessionAffinity":"None"}}'
 | §2.1 | `mode: ""`; last-sync timestamp within the last ~30 s |
 | §2.2 | `KUBE-SVC-*` with `--probability 0.33333` and `0.50000` rules; DNAT targets = the 3 pod IPs |
 | §2.3 | SEP disappears within seconds of READY 0/1; 5 rules at 5 replicas |
-| §2.4 | `Cluster`: both nodes answer, RemoteAddr = node-side IP · `Local`: one node answers, RemoteAddr = 10.215.138.1 |
+| §2.4 | `Cluster`: both nodes answer, RemoteAddr = the receiving node's IP or `tunl0` IP · `Local`: one node answers, RemoteAddr = 10.215.138.1; health check `localEndpoints` 0 vs 1 |
 | §2.5 | one Hostname with ClientIP affinity |
 
 ## 4. Break/fix
