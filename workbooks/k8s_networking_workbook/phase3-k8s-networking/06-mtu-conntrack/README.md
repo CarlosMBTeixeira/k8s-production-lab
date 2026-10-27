@@ -37,6 +37,9 @@ on some nodes) and the auto-detected value can be wrong for some paths.
 
 ### 2.2 The node's conntrack table
 
+UDP entries expire ~30 s after the last packet, so make some DNS traffic on
+worker-1 first: `$C dig +short server.lab-mtu.svc.cluster.local`.
+
 ```bash
 kubectl debug node/worker-1 -it --profile=sysadmin --image=nicolaka/netshoot:v0.13
 # in the debug shell (worker-1's netns):
@@ -51,21 +54,28 @@ the node's root namespace, translated by kube-proxy's DNAT.
 
 ### 2.3 kube-proxy cleans UDP entries (the lab 2.06 bug, handled)
 
-Keep the debug shell open:
+Keep the debug shell open. First, a client that keeps one source port, so
+all its queries are one conntrack entry pinned to **one** CoreDNS pod:
 
 ```bash
-# debug shell
+# WSL host
+$C sh -c 'while true; do dig -b 0.0.0.0#40000 +short +time=1 +tries=1 server.lab-mtu.svc.cluster.local >/dev/null; sleep 0.5; done' &
+```
+
+```bash
+# debug shell: which CoreDNS pod is that flow pinned to? (the reply src=)
+conntrack -L -p udp --orig-port-src 40000
 conntrack -E -p udp --orig-port-dst 53 -e DESTROY &
 ```
 
 ```bash
-# WSL host: a client that keeps one source port, then remove a CoreDNS pod
-$C sh -c 'while true; do dig -b 0.0.0.0#40000 +short +time=1 +tries=1 server.lab-mtu.svc.cluster.local >/dev/null; sleep 0.5; done' &
-kubectl -n kube-system delete pod $(kubectl -n kube-system get pods -l k8s-app=kube-dns -o jsonpath='{.items[0].metadata.name}')
+# WSL host: delete THAT CoreDNS pod (deleting the other one destroys nothing)
+kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide       # match the IP
+kubectl -n kube-system delete pod <the coredns pod with that IP>
 ```
 
-The debug shell prints `[DESTROY]` lines for flows whose reply source was
-the deleted pod's IP: kube-proxy deletes UDP conntrack entries for removed
+The debug shell prints a `[DESTROY]` line for the port-40000 flow (and any
+other flow whose reply source was the deleted pod's IP): kube-proxy deletes UDP conntrack entries for removed
 endpoints so source-port-reusing clients don't stick to a dead backend.
 Stop the loop (`kill %1` on the host) and exit the debug shell.
 
@@ -77,11 +87,17 @@ Stop the loop (`kill %1` on the host) and exit the debug shell.
 > — pods, kubelet probes, calico-node health checks — can fail.
 > **Rollback:** automatic after 180 s, or now with `bash ct-exhaust.sh stop`.
 
+First open `ssh w-2` in a **second terminal** and keep it: an established
+session survives a full table; a new `ssh w-2` is a new connection and can
+hang until it times out (whether it gets in depends on whether a slot frees
+up at that moment). That timeout is itself the lesson.
+
 ```bash
 bash ct-exhaust.sh start
 sleep 20
-ssh w-2 "cat /proc/sys/net/netfilter/nf_conntrack_count /proc/sys/net/netfilter/nf_conntrack_max"
-ssh w-2 "sudo dmesg | grep -i 'table full' | tail -3"
+# in the open w-2 session:
+#   cat /proc/sys/net/netfilter/nf_conntrack_count /proc/sys/net/netfilter/nf_conntrack_max
+#   sudo dmesg | grep -i 'table full' | tail -3
 $C curl -s -m3 -o /dev/null -w '%{http_code}\n' http://$SRV/        # new flow into worker-2: predict
 kubectl get events -A --field-selector involvedObject.kind=Pod --sort-by=.lastTimestamp | tail -5   # probe failures?
 bash ct-exhaust.sh stop
@@ -99,7 +115,7 @@ everything new — including the kubelet's own probes — drops.
 | §2.1 | pod and tunl0 at 1480; `-s 1452` works, `-s 1453` "message too long" |
 | §2.2 | DNS entries with `dst=10.96.0.10` in orig and a CoreDNS pod IP in reply |
 | §2.3 | `[DESTROY] udp … dport=53` lines within seconds of deleting the CoreDNS pod |
-| §2.4 | count = max, `table full, dropping packet` in dmesg, curl → `000`, then `200` after stop |
+| §2.4 | count = max, `table full, dropping packet` in dmesg, curl → `000`, then `200` after stop; events show probe failures on worker-2 (calico-node liveness, Envoy Gateway startup) |
 
 ## 4. Break/fix
 
@@ -126,7 +142,7 @@ bash break.sh
 
 **Done when**, with `inet lab-underlay` still in place on both workers:
 `$C curl -s -m10 -o /dev/null -w '%{http_code} %{size_download}\n' "http://$SRV/data?size=5&unit=MB"`
-prints `200 5000000` (pods recreated after the fix: refresh `$SRV`).
+prints `200 5242880` (whoami's MB is 2^20 bytes; pods recreated after the fix: refresh `$SRV`).
 
 <details><summary>Hint (only after 20 minutes)</summary>
 
