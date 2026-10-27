@@ -51,7 +51,7 @@ Read the routes:
 |---|---|
 | `192.168.a.b dev caliX scope link` | one /32 per local pod: the node routes to pods, it doesn't bridge them |
 | `blackhole 192.168.a.0/26 proto 80` | this node's IPAM block; anything in it that isn't a live pod is dropped here |
-| `192.168.c.0/26 via <w-2 IP> dev tunl0 proto bird onlink` | worker-2's block, learned over BGP, sent IP-in-IP |
+| `192.168.c.0/26 via <w-2 IP> dev tunl0 proto 80 onlink mtu 1480` | worker-2's block, sent IP-in-IP. `proto 80` = programmed by Felix (§2.4), not `proto bird` |
 
 The pod ARPs for 169.254.1.1; the `cali` veth answers with its own MAC
 because `proxy_arp=1` answers for any address the node has a route to. The
@@ -78,9 +78,21 @@ kubectl -n kube-system exec $P -c calico-node -- birdcl -s /var/run/calico/bird.
 ```
 
 Every node runs BIRD in a full mesh (`Mesh_<ip>`, state `Established`) and
-announces its blocks. Calico in IPIP mode is **BGP for routes plus IP-in-IP
-for the data**. Phase 4 replaces the mesh with route reflectors and peers it
-with an external router.
+announces its blocks; `show route` lists worker-2's block learned from
+`Mesh_<w-2 IP>`. But that's not where the kernel route came from:
+
+```bash
+kubectl get felixconfiguration default -o jsonpath='{.spec.programClusterRoutes}{"\n"}'   # EnabledIPIPOnly
+ssh w-1 "ip route show proto bird | wc -l; ip route show proto 80 | grep tunl0"            # 0, then the block routes
+```
+
+Since Calico 3.30 the upstream manifest sets `programClusterRoutes:
+EnabledIPIPOnly`: **Felix** programs the IP-in-IP block routes, straight from
+the block affinities in the datastore (§2.3). BIRD still runs the mesh, and
+it's what Phase 4 peers with an external router (route reflectors, LB IPs),
+but inside the cluster the routes no longer depend on BGP. Older Calico,
+and many installs you'll meet, still have BIRD program them (`proto bird`).
+Check which one you're on before blaming BGP for a missing route.
 
 ### 2.5 The packet on the wire
 
@@ -91,7 +103,7 @@ $C ping -c2 $REMOTE
 wait
 ```
 
-Expected: `<w-1 IP> > <w-2 IP>: <pod IP> > <remote pod IP>: ICMP echo request … (ipip-proto-4)`.
+Expected: `IP <w-1 IP> > <w-2 IP>: IP <pod IP> > <remote pod IP>: ICMP echo request …`, two IP headers on one line.
 Outer header node→node, inner header pod→pod: 20 bytes of overhead, hence
 the 1480 MTU. Now ping `$LOCAL` (same node) with a capture on `$UP`: nothing,
 because same-node traffic goes `cali → node → cali` and never touches the NIC.
@@ -102,7 +114,7 @@ because same-node traffic goes `cali → node → cali` and never touches the NI
 ssh w-1 "sudo timeout 8 tcpdump -nni $UP -c2 'tcp port 80 and host 1.1.1.1'" &
 $C curl -s -o /dev/null -m5 http://1.1.1.1
 wait
-ssh w-1 "sudo iptables -t nat -S | grep -A3 cali-nat-outgoing"
+ssh w-1 "sudo iptables -t nat -S cali-nat-outgoing"   # MASQUERADE: src in cali40masq-ipam-pools, dst NOT in cali40network-ip-pools
 ```
 
 Source on the wire is worker-1's IP: `natOutgoing: true` masquerades pod
@@ -138,16 +150,19 @@ item. The fix is choosing a non-overlapping pod CIDR at install time
 |---|---|
 | §2.1 | pod `/32`, default via 169.254.1.1, neighbour `ee:ee:ee:ee:ee:ee`, MTU 1480 |
 | §2.2 | the `iflink` index maps to a `cali*` on worker-1 with `proxy_arp=1` |
-| §2.4 | one `Mesh_*` protocol per other node, all `Established` |
+| §2.4 | one `Mesh_*` protocol per other node, all `Established`; kernel block routes are `proto 80` (Felix), none `proto bird` |
 | §2.5 | IPIP packets node→node for cross-node only |
 | §2.7 | 10.215.138.1 answers, 192.168.122.1 doesn't |
 
 ## 4. Break/fix
 
 > **RISKY.** `break.sh` adds an nftables table `inet lab-fw` on worker-2
-> that filters IP-in-IP. **Blast radius:** pod traffic into worker-2 from
-> other nodes (cluster DNS replicas there, the Gateway's backends there).
-> Control-plane and node-to-node traffic are unaffected.
+> that filters IP-in-IP. **Blast radius:** all pod traffic into worker-2
+> from other nodes, including the *replies* to worker-2's own pods (their
+> DNS to CoreDNS elsewhere stops), and every webhook whose pod runs there:
+> on a fresh build that's typically cert-manager's (any cert-manager object
+> then fails with `failed calling webhook … context deadline exceeded`) and
+> Envoy Gateway. Node-to-node traffic and the API server itself are unaffected.
 > **Rollback:** `ssh w-2 sudo nft delete table inet lab-fw`.
 
 ```bash
@@ -181,5 +196,5 @@ ssh w-2 sudo nft delete table inet lab-fw 2>/dev/null || true
 ## 6. What I should be able to explain after this
 
 - Calico doesn't bridge: each pod is a /32 behind a `cali` veth, the pod's gateway 169.254.1.1 exists only as a proxy-ARP answer, and the node routes everything.
-- Calico IPIP = BIRD full-mesh BGP distributing per-node /26 blocks + IP-in-IP (protocol 4, 20 bytes) between nodes; same-node traffic never touches the NIC.
+- Calico IPIP = per-node /26 blocks routed over IP-in-IP (protocol 4, 20 bytes) between nodes; the routes come from Felix (`programClusterRoutes`, Calico ≥ 3.30) or BIRD (`proto bird`), with the BIRD mesh running either way; same-node traffic never touches the NIC.
 - natOutgoing masquerades only destinations outside every IPPool, so a pod CIDR that overlaps a real network makes that network unreachable from pods.

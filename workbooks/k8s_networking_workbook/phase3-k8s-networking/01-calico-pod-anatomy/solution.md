@@ -24,8 +24,9 @@ T
 <!--/FAULT-->
 
 An nftables table on worker-2 drops IP protocol 4 (IP-in-IP) at
-prerouting. BGP (TCP 179) still works, so routes are still learned and
-calico-node stays Ready; only the encapsulated data dies. This is what a
+prerouting. The routes stay (Felix programs them from the datastore), BGP
+(TCP 179) stays Established and calico-node stays Ready; only the
+encapsulated data dies. This is what a
 cloud security group or an on-prem firewall that allows "TCP/UDP between
 nodes" but not protocol 4 looks like.
 
@@ -36,8 +37,8 @@ nodes" but not protocol 4 looks like.
 | Hypothesis | Same-node works and cross-node to one node fails → overlay or underlay into worker-2, not the pods. |
 | Tool | `ssh w-1 sudo tcpdump -nni $UP ip proto 4` and the same on w-2, during a ping from client to server-remote |
 | Expected if right | requests leave w-1 encapsulated; they **arrive** on w-2's NIC (the tap is before netfilter); no reply leaves w-2. |
-| Tool 2 | `ssh w-2 "sudo nft list ruleset \| grep -B5 -A5 'protocol 4\|ipip'"` |
-| Expected if right | `table inet lab-fw … ip protocol 4 drop` |
+| Tool 2 | `ssh w-2 sudo nft list tables`, then `sudo nft list table <the odd one>` |
+| Expected if right | `table inet lab-fw` next to Calico's and iptables-nft's tables; inside it, `ip protocol ipencap drop` (nft names protocol 4 `ipencap`, so grepping for "protocol 4" finds nothing, and "ipencap" also hits Calico's own rules). |
 | What would have told me sooner | Calico's own docs list the required underlay openings (BGP TCP 179; IPIP = IP protocol 4; VXLAN UDP 4789). An "Established BGP + no data" state is the signature of a firewall that knows TCP/UDP ports but not IP protocols. A node-to-node pod-ping probe (e.g. a DaemonSet blackbox check) catches it before users do. |
 
 ## Fix
