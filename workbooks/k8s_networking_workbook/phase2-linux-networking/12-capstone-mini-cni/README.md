@@ -32,7 +32,9 @@ Edit the skeleton on the WSL host (it's the mounted `/workbook`), run it in the 
 
 ### M1 — ADD/DEL on one node (2 h)
 
-Implement TODOs 1, 2, 4–10. Then on netlab-a:
+Implement TODOs 1, 2, 4–10. (Untouched, the skeleton's ADD fails with
+`no free addresses in 10.244.1.0/24`: that's TODO 4's stub, not a full
+subnet.) Then on netlab-a:
 
 ```bash
 cd /workbook/phase2-linux-networking/12-capstone-mini-cni
@@ -82,6 +84,9 @@ and a permanent FDB entry (lab 2.08 §2.3). Pods now need MTU 1450:
 tcpdump -nni $(ip -o route show default | awk '{print $5}') udp port 8472 -c4   # inner 10.244.1.2 > 10.244.2.2
 ```
 
+tcpdump decodes UDP/8472 as `OTV … instance 42` (OTV uses the same port):
+"instance" is the VNI. `-T vxlan` makes it print `VXLAN … vni 42`.
+
 Forget the MTU change once on purpose and watch `verify.sh`'s full-MTU check fail.
 
 ### M5 — Prove it (1 h)
@@ -104,7 +109,16 @@ direct 10.244.x.x packets on the uplink.
 
 ## 4. Break/fix
 
-Needs pod1 on A and pod2 on B, in either mode.
+Needs pod1 on A and pod2 on B, in **routed** mode. If you finished in VXLAN
+mode, switch back first (pods can keep MTU 1450):
+`bash reference/vxlan.sh a down && bash reference/hostgw.sh a` on A, the same
+with `b` on B, then `bash verify.sh a` → 13 passed.
+
+Why not VXLAN: there the injected rule masquerades pod1 to the VTEP address
+`10.244.1.0`, which is inside the cluster CIDR, so pod2's allowlist lets it
+through and the ticket doesn't reproduce. `verify.sh` still fails (`pod2
+sees '10.244.1.0'`). That's the overlay version of this bug: it hides from
+firewalls and only shows up in the server's logs.
 
 ```bash
 # netlab-b

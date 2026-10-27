@@ -71,6 +71,8 @@ ADD)
     #         Hint: `ip link add A type veth peer name B netns <path>` and `nsenter --net=<path> ip …`
     #         Beware: inside nsenter, /sys is still the host's — use `ip -j link`, not /sys.
     # TODO 8: inside the pod: address $IP/24, link up, lo up, default route via $GW.
+    #         Then announce the address with a gratuitous ARP (`arping -U -c1 -I <if> <ip>`):
+    #         a reused IP otherwise stays mapped to the old pod's MAC in its neighbours.
     # TODO 9: print the result to fd 3. Minimum: cniVersion, interfaces (host veth, pod eth0
     #         with "sandbox": $CNI_NETNS), ips [{address, gateway, interface: <index>}].
     err 100 "ADD not implemented"

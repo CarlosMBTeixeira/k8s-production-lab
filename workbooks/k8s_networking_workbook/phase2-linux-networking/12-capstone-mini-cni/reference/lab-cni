@@ -75,6 +75,9 @@ ADD)
     in_ns ip link set "$CNI_IFNAME" up
     in_ns ip link set lo up
     in_ns ip route add default via "$GW"
+    # Gratuitous ARP: IPs get reused, and neighbours still caching the previous
+    # pod's MAC for this IP would keep sending to it until their entry expires.
+    in_ns arping -q -U -c1 -I "$CNI_IFNAME" "$IP" || true
     HMAC=$(ip -j link show "$HOSTIF" | jq -r '.[0].address')
     CMAC=$(in_ns ip -j link show "$CNI_IFNAME" | jq -r '.[0].address')
     jq -cn --arg v "$VER" --arg br "$BR" --arg hif "$HOSTIF" --arg hmac "$HMAC" \

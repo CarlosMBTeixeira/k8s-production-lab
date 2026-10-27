@@ -47,7 +47,7 @@ A_IP, so the allowlist rejects it.
 |---|---|
 | Hypothesis | Connection refused (fast) = something answered with a reject; ping still works, so routing is fine. Something filters on source, and the source changed. |
 | Tool | on B: `tcpdump -nni $UP 'port 8080 or udp port 8472'` (or on cni0) during the curl |
-| Expected if right | the request arrives with source `A_IP` (routed) or an inner source `A_IP`/VTEP address (VXLAN), not 10.244.1.2; a TCP RST / ICMP port-unreachable goes back. |
+| Expected if right | the request arrives with a node address as source, not 10.244.1.2, and an ICMP port-unreachable goes back. In this lab it shows as **10.215.138.1**, not A_IP: the WSL host has br_netfilter on, and Multipass's own `-s <bridge subnet> ! -d <bridge subnet> -j MASQUERADE` NATs A_IP → 10.244.2.2 a second time. Two layers of SNAT, same lesson. |
 | Tool 2 | on B: `iptables -L FORWARD -v -n --line-numbers` |
 | Expected if right | a REJECT for `! 10.244.0.0/16 → 10.244.2.0/24:8080` with a rising counter. |
 | Tool 3 | on A: `iptables -t nat -L POSTROUTING -v -n --line-numbers` |
