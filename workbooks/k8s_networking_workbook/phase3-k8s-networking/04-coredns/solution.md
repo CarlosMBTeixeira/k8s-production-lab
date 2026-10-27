@@ -20,6 +20,8 @@ kubectl -n kube-system create cm coredns --from-file=Corefile="$LAB_DIR/.Corefil
 rm -f "$LAB_DIR/.Corefile.broken"
 kubectl -n kube-system rollout restart deploy/coredns >/dev/null
 kubectl -n kube-system rollout status deploy/coredns --timeout=120s >/dev/null
+# The old pods keep answering with the good config while Terminating (lameduck 5s): wait them out.
+for i in $(seq 60); do kubectl -n kube-system get pods -l k8s-app=kube-dns --no-headers | grep -q Terminating || break; sleep 2; done
 cat <<'T'
 
 TICKET  Since this morning, pods across the cluster can't reach anything on
@@ -47,13 +49,14 @@ like "the internet is down" rather than "DNS is down".
 | Expected if right | `[ERROR] plugin/errors: 2 example.com. A: read udp <pod>:…->192.0.2.53:53: i/o timeout` — names the upstream. |
 | Tool 3 | `kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' \| grep forward` and `ssh w-1 dig +short @$(ssh w-1 "grep -m1 nameserver /run/systemd/resolve/resolv.conf \| cut -d' ' -f2") example.com` |
 | Expected if right | `forward . 192.0.2.53`; the node's real upstream answers fine. |
-| What would have told me sooner | `coredns_dns_responses_total{rcode="SERVFAIL"}` and `coredns_forward_healthcheck_broken_total` rising, alongside `NOERROR` dropping for non-cluster zones. And GitOps on the Corefile: a diff would have shown a hand-edited `forward`. |
+| What would have told me sooner | `coredns_dns_responses_total{rcode="SERVFAIL"}` and `coredns_proxy_healthcheck_failures_total{to="192.0.2.53:53"}` rising (`coredns_forward_healthcheck_broken_total` stayed at 0 here), alongside `NOERROR` dropping for non-cluster zones. And GitOps on the Corefile: a diff would have shown a hand-edited `forward`. |
 
 ## Fix
 
 ```bash
 kubectl -n kube-system create cm coredns --from-file=Corefile=.Corefile.orig --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n kube-system rollout restart deploy/coredns && kubectl -n kube-system rollout status deploy/coredns
+sleep 8      # the old (broken) pods answer during their 5 s lameduck while Terminating
 kubectl -n lab-dns exec client -- dig +short example.com
 rm .Corefile.orig
 ```

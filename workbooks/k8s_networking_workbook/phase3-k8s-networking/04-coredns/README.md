@@ -78,15 +78,18 @@ the same socket**, which is what triggers the conntrack insert race below.
 
 ```bash
 kubectl -n kube-system port-forward svc/kube-dns 9153:9153 >/dev/null & sleep 2
-curl -s localhost:9153/metrics | grep -E '^coredns_(dns_requests_total|dns_responses_total|forward_requests_total|cache_hits_total)' | head -20
+curl -s localhost:9153/metrics | grep -E '^coredns_(dns_requests_total|dns_responses_total|cache_hits_total|proxy_healthcheck_failures_total|forward_healthcheck_broken_total)' | head -20
 kill %1
 kubectl -n kube-system logs -l k8s-app=kube-dns --tail=20
 ```
 
 Watch `coredns_dns_responses_total{rcode="NXDOMAIN"}` against `NOERROR` —
 the ndots storm is visible as a huge NXDOMAIN share. `SERVFAIL` rising is an
-upstream problem. `coredns_forward_healthcheck_broken_total` is the upstream
-health check.
+upstream problem. `coredns_proxy_healthcheck_failures_total{to="<upstream>"}`
+counts failed upstream health checks; `coredns_forward_healthcheck_broken_total`
+only moves when **every** upstream is down. (Since CoreDNS 1.11 the forward
+plugin's per-upstream metrics are `coredns_proxy_*`; older dashboards still
+query `coredns_forward_requests_total`, which no longer exists.)
 
 ### 2.5 The 5-second delay (explain, don't reproduce)
 
@@ -124,7 +127,7 @@ this), `ClusterFirstWithHostNet` (hostNetwork pods that need cluster names),
 | Check | Expected |
 |---|---|
 | §2.1 | `nameserver 10.96.0.10`, `search lab-dns.svc.cluster.local svc.cluster.local cluster.local …`, `options ndots:5` |
-| §2.2 | headless returns 2 pod IPs; SRV `0 50 80 web.lab-dns.svc.cluster.local.`; `kubernetes.default` without `+search` → nothing |
+| §2.2 | headless returns 2 pod IPs; SRV `0 100 80 web.lab-dns.svc.cluster.local.` (one target: the ClusterIP); `kubernetes.default` without `+search` → nothing |
 | §2.3 | ~8–10 queries without the dot; 2 with it; 2 with ndots:1 |
 | §2.4 | NXDOMAIN counter grows after §2.3 |
 | §2.6 | `dflt` can resolve example.com but not `web` |
@@ -137,6 +140,7 @@ this), `ClusterFirstWithHostNet` (hostNetwork pods that need cluster names),
 > **Rollback:** the original Corefile is saved to `.Corefile.orig` in this
 > folder;
 > `kubectl -n kube-system create cm coredns --from-file=Corefile=.Corefile.orig --dry-run=client -o yaml | kubectl apply -f - && kubectl -n kube-system rollout restart deploy/coredns`
+> (then give it ~8 s: the old pods keep answering during their 5 s lameduck).
 
 ```bash
 bash break.sh
