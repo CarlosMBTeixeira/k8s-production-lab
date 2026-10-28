@@ -1,7 +1,8 @@
 # Reference — LB IPAM pool on the kind network + L2 announcements on eth0.
-# apiVersion: cilium.io/v2alpha1 on most versions; newer Cilium serves cilium.io/v2
+# API versions move between Cilium releases. On 1.20 the pool is cilium.io/v2
+# only, the L2 policy still cilium.io/v2alpha1
 # (check: kubectl api-resources | grep -iE 'ippool|l2announcement').
-apiVersion: cilium.io/v2alpha1
+apiVersion: cilium.io/v2
 kind: CiliumLoadBalancerIPPool
 metadata: {name: lab-pool}
 spec:

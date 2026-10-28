@@ -32,7 +32,7 @@ the break/fix use them.
 
 | # | Requirement | Hints |
 |---|---|---|
-| 1 | **Gateway API CRDs** installed at the version your Cilium release requires | Cilium docs → "Gateway API Support" lists the exact CRDs (standard channel, plus any experimental ones like TLSRoute it needs) |
+| 1 | **Gateway API CRDs** installed at the version your Cilium release requires | Cilium docs → "Gateway API Support" → Installation lists the exact CRDs and version (Cilium 1.20: Gateway API v1.6.1, standard channel, which now includes TLSRoute); apply with `--server-side` |
 | 2 | **Cilium** with kube-proxy replacement, `ipam.mode=kubernetes`, Gateway API, L2 announcements, Hubble relay + UI | flags: `kubeProxyReplacement`, `k8sServiceHost/Port`, `gatewayAPI.enabled`, `l2announcements.enabled`, `devices='{eth0}'`, `k8sClientRateLimit.qps/burst` (the L2 docs say why), `hubble.relay.enabled`, `hubble.ui.enabled` |
 | 3 | **LB IPAM pool** `lab-pool` = `$LB_START`–`$LB_STOP`, announced on `eth0` | `CiliumLoadBalancerIPPool`, `CiliumL2AnnouncementPolicy` |
 | 4 | Namespace **`lab-cap`** with `frontend` (2×, port 80), `api` (2×, port 80), `db` (1×, port 5432) — whoami, pods labelled `tier: frontend\|api\|db`, Services named like the Deployments | `whoami --name <x>` makes `Hostname`/`Name` readable; `--port 5432` for db |
@@ -96,3 +96,4 @@ kind delete cluster --name lab-cilium
 - How the pieces of a kube-proxy-free Cilium platform fit: socket/tc LB for Services, LB IPAM + L2 announcements (leader-elected ARP replies) for external IPs, Cilium's Envoy for Gateway API, identities for policy, Hubble for flows.
 - Why Gateway traffic needs a `fromEntities: [ingress]` allow, and why a three-tier zero-trust set is: default deny + DNS-via-proxy + one allow per edge.
 - How to split an incident with two symptoms — one status-visible (route `ResolvedRefs`), one only flow-visible (DNS drops to one backend) — and why intermittent DNS failures point at one bad backend among several.
+- Why a label change on a pod takes effect on policy only after Cilium re-allocates its identity, seconds later.

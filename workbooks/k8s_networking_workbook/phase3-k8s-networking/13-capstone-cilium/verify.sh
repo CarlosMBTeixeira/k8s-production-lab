@@ -32,9 +32,10 @@ expect 000 "other namespace → api denied"       lab-cap-other probe-other http
 expect 200 "api tier → example.com"             lab-cap probe-api      http://example.com/
 expect 000 "api tier → example.org denied"      lab-cap probe-api      http://example.org/
 
+# Timed in bash: netshoot's /bin/sh is busybox, whose date has no %N.
 slow=0
 for i in $(seq 10); do
-  t=$($K -n lab-cap exec probe-frontend -- sh -c 'S=$(date +%s%N); dig +short +time=2 +tries=1 api.lab-cap.svc.cluster.local >/dev/null; echo $(( ($(date +%s%N)-S)/1000000 ))' 2>/dev/null)
+  t=$($K -n lab-cap exec probe-frontend -- bash -c 'S=${EPOCHREALTIME/./}; dig +short +time=2 +tries=1 api.lab-cap.svc.cluster.local >/dev/null; E=${EPOCHREALTIME/./}; echo $(( (E-S)/1000 ))' 2>/dev/null)
   [ "${t:-9999}" -gt 1000 ] && slow=$((slow+1))
 done
 [ "$slow" -eq 0 ] && ok "10/10 DNS lookups under 1 s" || bad "DNS: $slow/10 lookups over 1 s"
