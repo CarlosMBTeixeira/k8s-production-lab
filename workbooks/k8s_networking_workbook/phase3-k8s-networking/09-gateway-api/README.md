@@ -25,7 +25,7 @@ st() { kubectl -n "$1" get httproute "$2" -o jsonpath='{range .status.parents[*]
 ### 2.1 The resource model and who owns what
 
 ```bash
-kubectl get gatewayclass eg -o yaml | grep controllerName    # Envoy Gateway's controller
+kubectl get gatewayclass eg -o jsonpath='{.spec.controllerName}{"\n"}'   # gateway.envoyproxy.io/gatewayclass-controller
 kubectl -n lab-gw get gateway lab-gw -o yaml | sed -n '/^status:/,$p'
 kubectl -n envoy-gateway-system get deploy,svc -l gateway.envoyproxy.io/owning-gateway-name=lab-gw
 ```
@@ -79,23 +79,36 @@ kubectl apply -f routes/05-https-redirect.yaml
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: secure.lab.local' http://$GW/
 curl -sk --resolve secure.lab.local:443:$GW https://secure.lab.local/ | grep '^Name'
 openssl s_client -connect $GW:443 -servername secure.lab.local </dev/null 2>/dev/null | openssl x509 -noout -subject -ext subjectAltName
-openssl s_client -connect $GW:443 -servername nope.example </dev/null 2>&1 | grep -iE 'alert|error' | head -2   # no listener for that SNI
+openssl s_client -connect $GW:443 -servername nope.example </dev/null 2>&1 | grep -E 'errno|peer certificate|read 0 bytes'   # no listener for that SNI
+curl -sk --resolve nope.example:443:$GW https://nope.example/; echo "curl exit $?"                                 # 35
 ```
 
 The HTTPS listener selects by **SNI** before any route is consulted. A
 client that doesn't send SNI, or sends the wrong one, never reaches a route.
+Envoy has no filter chain for that name, so it doesn't send a TLS alert: it
+resets the TCP connection after the ClientHello (`write:errno=104`,
+`no peer certificate available`, `read 0 bytes`). A reset with zero bytes
+read, not a certificate error, is the signature of an SNI miss.
 
 ### 2.6 Down to Envoy
 
 ```bash
 EP=$(kubectl -n envoy-gateway-system get pod -l gateway.envoyproxy.io/owning-gateway-name=lab-gw -o jsonpath='{.items[0].metadata.name}')
 kubectl -n envoy-gateway-system port-forward pod/$EP 19000:19000 >/dev/null & sleep 2
-curl -s localhost:19000/listeners                               # one per Gateway listener/port
-curl -s localhost:19000/clusters | grep -E '::(cx_active|health_flags|[0-9.]+:80::hostname)' | head
+curl -s localhost:19000/listeners                               # lab-gw/lab-gw/http on :10080, …/https on :10443, plus stats/ready
+curl -s localhost:19000/clusters | cut -d: -f1 | sort -u        # one cluster per route rule: httproute/<ns>/<route>/rule/<n>
+curl -s localhost:19000/clusters | grep -E '::(cx_active|health_flags)::' | head
 curl -s localhost:19000/config_dump | python3 -c 'import json,sys; d=json.load(sys.stdin); print([c["@type"].split(".")[-1] for c in d["configs"]])'
 kill %1
 kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=20 | grep -i lab-gw   # translation errors land here
 ```
+
+Envoy runs unprivileged, so Envoy Gateway binds the Gateway's ports 80/443
+to 10080/10443 inside the pod and the `LoadBalancer` Service maps
+80→10080, 443→10443. The two extra listeners (19001 stats, 19003 readiness)
+are Envoy Gateway's own, not the Gateway's. Clusters are named after the
+**route rule**, not the Service: `web/rule/2` is the 90/10 split and holds
+both web-v1 and web-v2 endpoints.
 
 Route status is the controller's opinion; Envoy's clusters and listeners
 are what's actually serving. When they disagree, the controller logs say why.
@@ -107,8 +120,8 @@ are what's actually serving. When they disagree, the controller logs say why.
 | §2.2 | `Accepted=True`, `ResolvedRefs=True`; `Name: web-v1`; 404 for other hosts |
 | §2.3 | ≈ 45/5 split; header → web-v2; `/slow?wait=3s` → 504 at ~2 s |
 | §2.4 | 500 + `RefNotPermitted` before the grant, `Name: shared` after |
-| §2.5 | 301 to https; cert SAN `*.lab.local`; handshake fails for an unknown SNI |
-| §2.6 | Envoy lists an HTTP and an HTTPS listener and clusters for web-v1, web-v2, shared |
+| §2.5 | 301 to `https://secure.lab.local/`; cert SAN `*.lab.local`; unknown SNI → connection reset (`errno=104`, no peer certificate), curl exit 35 |
+| §2.6 | Listeners `lab-gw/lab-gw/http` (:10080) and `…/https` (:10443); clusters `httproute/lab-gw-apps/{web,shared,secure}/rule/N` |
 
 ## 4. Break/fix
 
