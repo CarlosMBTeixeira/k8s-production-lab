@@ -44,8 +44,14 @@ kubectl label ns lab-ovn egress=on
 export EIP; envsubst < egressip.yaml.tpl | kubectl apply -f -
 kubectl get egressip lab-egress -o yaml | sed -n '/^status:/,$p'      # assigned to ovn-worker
 kubectl -n lab-ovn exec client -- curl -s http://$EXT/ | grep RemoteAddr   # $EIP, from any node the pod runs on
-docker exec ovn-worker ip -br addr | grep -F "$EIP"                     # the node now owns it (answers ARP)
+NBPOD=$(kubectl -n ovn-kubernetes get pod -l app=ovnkube-node --field-selector spec.nodeName=ovn-worker -o name)
+kubectl -n ovn-kubernetes exec $NBPOD -c nb-ovsdb -- ovn-nbctl lr-nat-list GR_ovn-worker | grep -F "$EIP"   # one snat per lab-ovn pod
+docker run --rm --net container:lab-ext --privileged nicolaka/netshoot:v0.13 arping -c2 -I eth0 $EIP          # answered with ovn-worker's MAC
 ```
+
+The EgressIP isn't on any Linux interface (`ip addr` on the node won't show
+it). It lives in OVN: `snat` entries on the owning node's gateway router,
+and OVN answers ARP for it on `breth0` with the node's MAC.
 
 Failover:
 
@@ -81,14 +87,16 @@ itself and track TTLs (compare with Cilium's `toFQDNs` in lab 3.08).
 kubectl get crd | grep policy.networking.k8s.io    # adminnetworkpolicies, baselineadminnetworkpolicies
 ```
 
-If the CRDs are missing, re-create the cluster with `kind.sh`'s ANP option
-(lab 3.10 §1) — or read this section and move on.
+Current `kind.sh` installs them and enables ANP on every run (lab 3.10
+§1). If they're missing, your version predates that: check its `--help`
+for an ANP option, or read this section and move on.
 
 ```bash
 kubectl apply -f anp.yaml && kubectl -n lab-ovn-untrusted wait --for=condition=Ready pod/intruder
 kubectl -n lab-ovn-untrusted exec intruder -- curl -s -m3 -o /dev/null -w '%{http_code}\n' web.lab-ovn   # 000
 kubectl -n lab-ovn get networkpolicy allow-all-ingress                    # the namespace allows everything…
-kubectl get adminnetworkpolicy lab-deny-untrusted -o yaml | sed -n '/^status:/,$p'
+kubectl get adminnetworkpolicy lab-deny-untrusted -o yaml | sed -n '/^status:/,$p'   # Ready-In-Zone-<node>, one per zone
+kubectl -n lab-ovn exec client -- curl -s -m3 -o /dev/null -w '%{http_code}\n' web   # 200: only untrusted is denied
 ```
 
 Evaluation order: **ANP** (by priority; Allow/Deny are final, Pass hands
@@ -119,9 +127,9 @@ and "Troubleshooting network issues").
 | Check | Expected |
 |---|---|
 | §2.1 | RemoteAddr = the client's node IP |
-| §2.2 | RemoteAddr = `$EIP`; status moves to ovn-worker2 on relabel |
+| §2.2 | RemoteAddr = `$EIP`; `snat` rows for `$EIP` on `GR_ovn-worker`; arping answered; status moves to ovn-worker2 on relabel |
 | §2.3 | example.com 200, example.org 000, in-cluster 200 |
-| §2.4 | intruder 000 despite `allow-all-ingress` |
+| §2.4 | intruder 000 despite `allow-all-ingress`; client → web still 200; ANP status `Ready-In-Zone-*` True |
 
 ## 4. Break/fix
 
