@@ -42,7 +42,7 @@ hubble observe -n lab-cil --verdict DROPPED --last 10
 #   … Policy denied DROPPED (UDP) … → kube-system/coredns-…:53
 kubectl apply -f policies/02-allow-dns-visible.yaml
 $C dig +short web.lab-cil.svc.cluster.local   # works
-hubble observe -n lab-cil --protocol dns --last 10   # the queries and answers, by name
+sleep 2; hubble observe -n lab-cil --protocol dns --last 10   # the queries and answers, by name (answers land a moment after)
 ```
 
 Note what the DROPPED line gave you: source, destination identity, port,
@@ -82,11 +82,18 @@ answers seen → nothing allowed.
 ### 2.5 Identities: what policy really matches
 
 ```bash
-kubectl -n kube-system exec $CIL -c cilium-agent -- cilium-dbg endpoint list | grep -E 'ENDPOINT|lab-cil'
-kubectl -n kube-system exec $CIL -c cilium-agent -- cilium-dbg identity list | grep -A3 lab-cil
+kubectl -n lab-cil get ciliumendpoints                       # pod → security identity (all web pods share one)
+ID=$(kubectl -n lab-cil get cep client -o jsonpath='{.status.identity.id}')
+kubectl -n kube-system exec $CIL -c cilium-agent -- cilium-dbg identity get $ID   # the label set behind the number
 kubectl get ciliumidentities | head
+kubectl -n kube-system exec $CIL -c cilium-agent -- cilium-dbg policy selectors   # each selector → the identities it matches
 kubectl -n kube-system exec $CIL -c cilium-agent -- cilium-dbg policy get | head -40
 ```
+
+In `policy selectors`, the `toFQDNs` selector (`MatchName: example.com`)
+matches identities above 16777216: local CIDR identities Cilium allocated
+for the IPs its DNS proxy saw. That's how a name becomes something BPF
+can match.
 
 Cilium allocates a numeric identity per unique label set; policy is
 compiled to "identity X may talk to identity Y on port P". Pod IPs are not
@@ -108,12 +115,12 @@ incident to someone else; the CLI is faster for finding it.
 | §2.2 | DROPPED to kube-dns before 02; `hubble observe --protocol dns` shows queries after |
 | §2.3 | 200 for GET /api/…, 403 for /admin and POST; Hubble shows `http-request`/`http-response` with paths |
 | §2.4 | example.com 200, example.org 000; `fqdn cache list` has example.com → IPs |
-| §2.5 | `client` and each `web` pod with identities; `policy get` lists your rules |
+| §2.5 | `client` and the 3 `web` pods with 2 identities; `policy selectors` maps `example.com` to 167772xx identities; `policy get` lists your rules |
 
 ## 4. Break/fix
 
 ```bash
-bash break.sh          # recreates lab-cil with a policy set that has one subtle hole
+bash break.sh          # recreates lab-cil with a policy set that has one subtle hole (takes 1–3 min)
 ```
 
 | Beat | Your answer |
