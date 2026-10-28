@@ -45,8 +45,8 @@ OVN-K renders it as ACLs on a port group containing every lab-ovn pod.
 | Beat | Answer |
 |---|---|
 | Hypothesis | Pods, Service and endpoints are fine (nothing changed there), so something in the logical pipeline drops the flow — policy is the usual suspect. |
-| Tool | `$T -src-namespace lab-ovn -src client -dst-namespace lab-ovn -dst $WEB -tcp -dst-port 80 -loglevel 2 2>&1 \| grep -iE 'acl\|drop' \| head` |
-| Expected if right | the trace dies in `ls_out_acl` / an ACL action `drop` (to-lport ACLs on the destination side), mentioning a port group / ACL tied to `lab-ovn`. |
+| Tool | `$T -src-namespace lab-ovn -src client -dst-namespace lab-ovn -dst $WEB -tcp -dst-port 80 -loglevel 2 2>&1 \| grep -B2 'reg8\[17\] = 1'` (the summary line says "indicates failure") |
+| Expected if right | the trace dies on the destination side in `ls_out_acl_eval`, matching `outport == @a<number>`; `reg8[17] = 1` is OVN's drop flag. Name the port group: `$NB --columns=name,external_ids find Port_Group name=a<number>` → `NetpolNamespace:lab-ovn:Ingress`, the namespace's ingress default-deny. Grepping the trace for `acl\|drop` only shows the stages it passed. |
 | Tool 2 | `kubectl -n lab-ovn get networkpolicy`; `$NB find ACL 'external_ids{>=}{"k8s.ovn.org/name"="lab-ovn:allow-monitoring"}'` (external_ids keys vary by version; `$NB list ACL \| grep -B5 lab-ovn` works anywhere) |
 | Expected if right | one policy, `podSelector: {}`, ingress from `kubernetes.io/metadata.name=monitoring` only. |
 | What would have told me sooner | `kubectl get networkpolicy -n <ns>` is step one for any "pods can't talk" ticket in a namespace that just changed — names lie, selectors don't. ovnkube-trace names the stage in one command. |
