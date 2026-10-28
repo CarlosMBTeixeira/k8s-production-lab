@@ -39,7 +39,7 @@ directly. `ipam.mode=kubernetes` uses each node's `podCIDR` (10.244.x.0/24)
 instead of Cilium's own pool, so addresses read like the kind config.
 
 ```bash
-cilium config view | grep -E '^(kube-proxy-replacement|routing-mode|tunnel-protocol|enable-bpf-masquerade|ipam|enable-ipv4-masquerade) '
+cilium config view | grep -E '^(kube-proxy-replacement|routing-mode|tunnel-protocol|ipam|enable-ipv4-masquerade) '
 kubectl apply -f web.yaml && kubectl -n lab-cil rollout status deploy/web && kubectl -n lab-cil wait --for=condition=Ready pod/client
 ```
 
@@ -48,7 +48,7 @@ kubectl apply -f web.yaml && kubectl -n lab-cil rollout status deploy/web && kub
 ```bash
 CIL=$(kubectl -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=lab-cilium-worker -o name)
 X="kubectl -n kube-system exec $CIL -c cilium-agent --"
-$X cilium-dbg status --verbose | sed -n '/KubeProxyReplacement Details/,/^$/p'
+$X cilium-dbg status --verbose | sed -n '/KubeProxyReplacement Details/,/^BPF Maps/p'   # Socket LB Enabled; ClusterIP/NodePort/… Enabled
 $X cilium-dbg endpoint list                     # one per local pod: ID, identity, policy state, IP
 $X cilium-dbg service list | grep -A3 "$(kubectl -n lab-cil get svc web -o jsonpath='{.spec.clusterIP}')"
 $X cilium-dbg bpf lb list | head -20            # the same, as the BPF map the datapath reads
@@ -60,7 +60,7 @@ $X bpftool net show | head -20                  # tc programs on every lxc* veth
 The kernel's iptables and conntrack are mostly bystanders now:
 
 ```bash
-docker exec lab-cilium-worker iptables-save | grep -c KUBE      # 0 (or near)
+docker exec lab-cilium-worker iptables-save | grep -c KUBE      # ~8: kubelet's own KUBE-FIREWALL/KUBE-KUBELET-CANARY, nothing per Service
 docker exec lab-cilium-worker iptables-save | grep -c CILIUM    # a few chains, not per Service
 ```
 
@@ -90,25 +90,36 @@ the VIP to the application.
 
 ### 2.5 The overlay on the wire
 
+Pick a web pod on the **other** node from the client (same-node traffic
+never touches the overlay), and filter on the inner TCP port so the agents'
+health probes (port 4240) stay out of the capture:
+
 ```bash
-NODE=lab-cilium-worker2
-docker run --rm --net container:$NODE --privileged nicolaka/netshoot:v0.13 \
-  tcpdump -nni eth0 -c4 udp port 8472 &
-kubectl -n lab-cil exec client -- sh -c 'for i in 1 2 3; do curl -s -o /dev/null web; done'
-wait
+CNODE=$(kubectl -n lab-cil get pod client -o jsonpath='{.spec.nodeName}')
+read RIP RNODE < <(kubectl -n lab-cil get pod -l app=web -o jsonpath='{range .items[*]}{.status.podIP} {.spec.nodeName}{"\n"}{end}' | grep -v " $CNODE$" | head -1)
+echo "client on $CNODE, remote web $RIP on $RNODE"     # none listed → kubectl -n lab-cil rollout restart deploy/web
+docker run --rm --net container:$RNODE --privileged nicolaka/netshoot:v0.13 \
+  tcpdump -nni eth0 -c4 'udp port 8472 and (udp[50:2]=80 or udp[52:2]=80)' </dev/null &
+sleep 3; kubectl -n lab-cil exec client -- curl -s -o /dev/null $RIP
+wait $!
 ```
 
-VXLAN on 8472 (lab 2.08's Linux default, kept by Cilium), inner pod-to-pod.
-The VNI isn't a network id here: Cilium puts the **source security
-identity** in it, so the receiving node knows who sent the packet without
-looking up the IP. Lab 3.08 uses that identity.
+`udp[50:2]` is the inner TCP source port: 8 bytes of outer UDP + 8 of VXLAN
++ 14 of inner Ethernet + 20 of inner IP. VXLAN on 8472 (lab 2.08's Linux
+default, kept by Cilium), inner pod-to-pod. tcpdump prints the VNI as
+`instance N`, and N isn't a network id here: Cilium puts the **source
+security identity** in it. The SYN carries the client's identity, the
+SYN-ACK the web pods' identity; compare with the IDENTITY column of
+`cilium-dbg endpoint list`. The receiving node knows who sent the packet
+without looking up the IP. Lab 3.08 uses that identity.
 
 ### 2.6 NodePort without kube-proxy
 
 ```bash
 W=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' lab-cilium-worker)
-for i in 1 2 3; do curl -s http://$W:30080 | grep -E 'Hostname|RemoteAddr'; done
-$X cilium-dbg service list | grep 30080
+for i in $(seq 9); do curl -s http://$W:30080 | grep Hostname; done | sort | uniq -c   # random: all three appear, not evenly
+curl -s http://$W:30080 | grep RemoteAddr          # the node's cilium_host IP: KPR mode SNAT
+$X cilium-dbg service list | grep -A2 30080
 ```
 
 The BPF program on the node's `eth0` handles NodePort at tc (or XDP, with
@@ -119,7 +130,7 @@ change in the Cilium docs' kube-proxy-free page and note one sentence each.
 ### 2.7 Health
 
 ```bash
-$X cilium-health status                         # node-to-node and endpoint reachability, per node
+$X cilium-health status                         # node-to-node and endpoint reachability, per node; 0/0 until the first probe, ~2 min after install
 cilium status
 ```
 
@@ -130,8 +141,8 @@ cilium status
 | §2.1 | all nodes Ready, no kube-proxy, `kube-proxy-replacement true`, `routing-mode tunnel`, `tunnel-protocol vxlan` |
 | §2.2 | `service list` shows the VIP with 3 backends; `bpftool net show` lists `cil_from_container` on lxc devices |
 | §2.4 | the client's own capture shows SYNs to a 10.244.x.y pod IP, not to `$VIP` |
-| §2.5 | UDP 8472 between node IPs, inner 10.244.x.y |
-| §2.6 | NodePort answers from the WSL host with 3 different Hostnames |
+| §2.5 | UDP 8472 between node IPs, inner 10.244.x.y:80; `instance` = client identity on the SYN, web identity on the SYN-ACK |
+| §2.6 | NodePort answers from the WSL host, spread over 3 Hostnames; RemoteAddr is a cilium_host IP |
 
 ## 4. Break/fix
 
@@ -146,13 +157,15 @@ bash break.sh          # needs lab-cilium up with Cilium installed as in §2.1
 | Expected if right | |
 | What would have told me sooner | |
 
-**Done when** `client` reaches `web` by name and the NodePort answers from the
-WSL host, and you can say which component implements Services in this cluster.
+**Done when** the NodePort answers from the WSL host again, the client's own
+capture (§2.4) shows the SYN going to a pod IP again, and you can say which
+component implements Services in this cluster.
 
 <details><summary>Hint (only after 20 minutes)</summary>
 
-Pod IPs work; Services don't. In this cluster, who is supposed to turn a
-ClusterIP into a pod IP?
+Inside the cluster Services work; from outside they don't. In this cluster,
+who is supposed to implement a NodePort? And repeat §2.4: is the capture
+the same as before?
 </details>
 
 Solution: [`solution.md`](solution.md).
