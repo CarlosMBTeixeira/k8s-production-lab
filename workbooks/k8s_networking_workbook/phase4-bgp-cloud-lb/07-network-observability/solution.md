@@ -12,7 +12,8 @@ sed '/labels: {release: kube-prometheus-stack}/d' "$LAB_DIR/rules.yaml" | kubect
 cat <<'T'
 
 TICKET  Post-incident review: worker-2's conntrack table was full for 3
-        minutes this morning (simulate it: lab 3.06's ct-exhaust.sh start).
+        minutes this morning (simulate a near-full table: lab 3.06's
+        CT_HOLD=4000 CT_HEADROOM=4500 bash ct-exhaust.sh start).
         We have an alert for exactly that — NodeConntrackHigh in
         lab-netobs/lab-network — and it never fired. Nobody got paged.
         "kubectl get prometheusrule -n lab-netobs" shows it's there.
@@ -24,6 +25,11 @@ The PrometheusRule is valid and present, but lacks the
 `release: kube-prometheus-stack` label. This Prometheus only loads rules
 whose labels match its `ruleSelector`, so the rule was never evaluated —
 no error, no warning, just an alert that can't fire.
+
+The ticket's real morning had a twist: a table that's *completely* full
+blocks Prometheus's scrapes of that node too (lab §2.4), so even the fixed
+rule wouldn't have fired at 100 %. It fires on the way up, at 80 %. Pair it
+with `up{job="node-exporter"} == 0`.
 
 ## Diagnosis path
 
@@ -43,7 +49,7 @@ no error, no warning, just an alert that can't fire.
 ```bash
 kubectl -n lab-netobs label prometheusrule lab-network release=kube-prometheus-stack
 sleep 60; curl -s localhost:9090/api/v1/rules | jq -r '.data.groups[] | select(.name=="lab-network") | .rules[].name'
-bash ../../phase3-k8s-networking/06-mtu-conntrack/ct-exhaust.sh start      # and watch it fire, then stop
+CT_HOLD=4000 CT_HEADROOM=4500 bash ../../phase3-k8s-networking/06-mtu-conntrack/ct-exhaust.sh start   # firing in ~2 min, then stop
 ```
 
 ## Why it matters later

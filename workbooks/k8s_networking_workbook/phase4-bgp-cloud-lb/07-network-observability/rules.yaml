@@ -15,6 +15,9 @@ spec:
     - name: lab-network
       rules:
         - alert: NodeConntrackHigh
+          # Fires while the table FILLS. A FULL table also refuses Prometheus's
+          # new scrape connections to that node, so the series goes stale and
+          # this can't fire then — that's why the threshold is 80 %, not 100 %.
           expr: node_nf_conntrack_entries / node_nf_conntrack_entries_limit > 0.8
           for: 1m
           labels: {severity: warning}
