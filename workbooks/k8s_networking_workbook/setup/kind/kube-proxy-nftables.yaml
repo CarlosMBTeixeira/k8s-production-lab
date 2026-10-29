@@ -1,0 +1,12 @@
+# kind cluster "lab-nft" — kindnet CNI, kube-proxy in nftables mode (lab 3.03)
+# Create:  kind create cluster --config setup/kind/kube-proxy-nftables.yaml
+# Delete:  kind delete cluster --name lab-nft
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: lab-nft
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+networking:
+  kubeProxyMode: nftables

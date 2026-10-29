@@ -1,0 +1,10 @@
+# client may reach example.com (and nothing else outside) on 80/443.
+# Works only because 02 sends DNS through the proxy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: client-fqdn, namespace: lab-cil}
+spec:
+  endpointSelector: {matchLabels: {app: client}}
+  egress:
+    - toFQDNs: [{matchName: example.com}]
+      toPorts: [{ports: [{port: "80", protocol: TCP}, {port: "443", protocol: TCP}]}]

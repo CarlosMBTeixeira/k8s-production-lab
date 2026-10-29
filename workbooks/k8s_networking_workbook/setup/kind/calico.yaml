@@ -1,0 +1,14 @@
+# kind cluster "lab-calico" — no CNI; Calico installed by the lab; kube-proxy iptables (labs 4.03, 4.08)
+# Create:  kind create cluster --config setup/kind/calico.yaml
+# Delete:  kind delete cluster --name lab-calico
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: lab-calico
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+networking:
+  disableDefaultCNI: true
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16

@@ -1,0 +1,12 @@
+# frontend may call the api pods (egress side of 02 — both ends must allow).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-frontend-egress-to-back, namespace: lab-np-front}
+spec:
+  podSelector: {matchLabels: {app: frontend}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: lab-np-back}}
+          podSelector: {matchLabels: {app: api}}
+      ports: [{protocol: TCP, port: 80}]

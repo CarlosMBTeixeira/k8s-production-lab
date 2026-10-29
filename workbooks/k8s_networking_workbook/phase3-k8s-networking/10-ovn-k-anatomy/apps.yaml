@@ -1,0 +1,32 @@
+# Lab 3.10/3.11 — web (2 replicas, spread) + Service + client on OVN-Kubernetes.
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-ovn}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: lab-ovn}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      topologySpreadConstraints:
+        - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway, labelSelector: {matchLabels: {app: web}}}
+      containers:
+        - {name: whoami, image: "traefik/whoami:v1.10.3", ports: [{name: http, containerPort: 80}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: lab-ovn}
+spec:
+  selector: {app: web}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: client, namespace: lab-ovn, labels: {app: client}}
+spec:
+  containers:
+    - {name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}

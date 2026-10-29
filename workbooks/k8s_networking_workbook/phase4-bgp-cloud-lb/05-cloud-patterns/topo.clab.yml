@@ -1,0 +1,40 @@
+# Lab 4.05 — a cloud in a box.
+#
+#            on-prem 172.20.0.0/16                     cloud
+#   o1 ── op (AS65200) ── hub (AS65100, "transit hub") ── ra (AS65101) ── a1      VPC-A 10.10.0.0/16
+#   dnso ─┘                   │                           ├── dnsc (cloud resolver 10.10.2.53)
+#                             │                           └── pe  (private endpoint 10.10.3.10)
+#                             └─ rb (AS65102) ── b1                 VPC-B 10.20.0.0/16 (provider: "storage")
+#                                  └── pe (provider backbone 10.99.0.0/30, not in BGP)
+#
+# Deploy:  containerlab deploy -t topo.clab.yml && bash post-deploy.sh
+# Every link is pinned to MTU 1500 (Containerlab defaults to 9500), so the
+# fragmentation, PMTUD and OSPF-MTU drills see real-Ethernet numbers.
+name: cloud
+topology:
+  defaults:
+    kind: linux
+  nodes:
+    hub: {image: "quay.io/frrouting/frr:10.2.1", binds: [../lib/daemons:/etc/frr/daemons, ../lib/vtysh.conf:/etc/frr/vtysh.conf, hub/frr.conf:/etc/frr/frr.conf], exec: [sysctl -w net.ipv4.ip_forward=1]}
+    ra:  {image: "quay.io/frrouting/frr:10.2.1", binds: [../lib/daemons:/etc/frr/daemons, ../lib/vtysh.conf:/etc/frr/vtysh.conf, ra/frr.conf:/etc/frr/frr.conf],  exec: [sysctl -w net.ipv4.ip_forward=1]}
+    rb:  {image: "quay.io/frrouting/frr:10.2.1", binds: [../lib/daemons:/etc/frr/daemons, ../lib/vtysh.conf:/etc/frr/vtysh.conf, rb/frr.conf:/etc/frr/frr.conf],  exec: [sysctl -w net.ipv4.ip_forward=1]}
+    op:  {image: "quay.io/frrouting/frr:10.2.1", binds: [../lib/daemons:/etc/frr/daemons, ../lib/vtysh.conf:/etc/frr/vtysh.conf, op/frr.conf:/etc/frr/frr.conf],  exec: [sysctl -w net.ipv4.ip_forward=1]}
+    a1:  {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+    o1:  {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+    pe:  {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+    b1:  {image: "nicolaka/netshoot:v0.13", binds: [b1/index.html:/srv/index.html], cmd: python3 -m http.server 80 --directory /srv}
+    dnsc-net: {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+    dnso-net: {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+    dnsc: {image: "coredns/coredns:1.11.3", network-mode: container:dnsc-net, binds: [dnsc/Corefile:/Corefile], cmd: -conf /Corefile}
+    dnso: {image: "coredns/coredns:1.11.3", network-mode: container:dnso-net, binds: [dnso/Corefile:/Corefile], cmd: -conf /Corefile}
+  links:
+    - {endpoints: ["hub:eth1", "ra:eth1"], mtu: 1500}          # 10.255.1.0/30
+    - {endpoints: ["hub:eth2", "rb:eth1"], mtu: 1500}          # 10.255.2.0/30
+    - {endpoints: ["hub:eth3", "op:eth1"], mtu: 1500}          # 10.255.3.0/30
+    - {endpoints: ["ra:eth2", "a1:eth1"], mtu: 1500}           # 10.10.1.0/24
+    - {endpoints: ["ra:eth3", "dnsc-net:eth1"], mtu: 1500}     # 10.10.2.0/24
+    - {endpoints: ["ra:eth4", "pe:eth1"], mtu: 1500}           # 10.10.3.0/24
+    - {endpoints: ["pe:eth2", "rb:eth3"], mtu: 1500}           # 10.99.0.0/30 provider backbone
+    - {endpoints: ["rb:eth2", "b1:eth1"], mtu: 1500}           # 10.20.1.0/24
+    - {endpoints: ["op:eth2", "o1:eth1"], mtu: 1500}           # 172.20.1.0/24
+    - {endpoints: ["op:eth3", "dnso-net:eth1"], mtu: 1500}     # 172.20.2.0/24

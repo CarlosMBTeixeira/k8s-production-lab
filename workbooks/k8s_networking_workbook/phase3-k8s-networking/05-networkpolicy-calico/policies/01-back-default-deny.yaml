@@ -1,0 +1,7 @@
+# Everything in lab-np-back: no ingress unless another policy allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny-ingress, namespace: lab-np-back}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]

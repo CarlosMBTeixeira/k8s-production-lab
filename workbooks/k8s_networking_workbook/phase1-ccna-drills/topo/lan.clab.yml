@@ -1,0 +1,33 @@
+# Phase 1 — switched topology (drills 02, 06). The "switches" are Linux
+# bridges inside netshoot containers (not on the host, where Docker's
+# iptables would interfere).
+#
+#   h1 ─┐          ┌─ h3
+#   h2 ─┤ sw1 ═══ sw2 ├─ h4        sw1–sw2: eth3 (link A) and eth4 (link B, added in drill 06 for STP)
+#   r1 ─┘ (eth5)                    r1: router-on-a-stick for drill 06
+#
+# Deploy (netlab-c, root, local copy):  containerlab deploy -t lan.clab.yml && bash lan-setup.sh
+# Every link is pinned to MTU 1500 (Containerlab defaults to 9500), so the
+# fragmentation, PMTUD and OSPF-MTU drills see real-Ethernet numbers.
+name: p1l
+topology:
+  defaults:
+    kind: linux
+    image: nicolaka/netshoot:v0.13
+    cmd: sleep infinity
+  nodes:
+    sw1: {}
+    sw2: {}
+    h1: {}
+    h2: {}
+    h3: {}
+    h4: {}
+    r1: {}
+  links:
+    - {endpoints: ["h1:eth1", "sw1:eth1"], mtu: 1500}
+    - {endpoints: ["h2:eth1", "sw1:eth2"], mtu: 1500}
+    - {endpoints: ["sw1:eth3", "sw2:eth3"], mtu: 1500}
+    - {endpoints: ["sw1:eth4", "sw2:eth4"], mtu: 1500}
+    - {endpoints: ["h3:eth1", "sw2:eth1"], mtu: 1500}
+    - {endpoints: ["h4:eth1", "sw2:eth2"], mtu: 1500}
+    - {endpoints: ["r1:eth1", "sw1:eth5"], mtu: 1500}

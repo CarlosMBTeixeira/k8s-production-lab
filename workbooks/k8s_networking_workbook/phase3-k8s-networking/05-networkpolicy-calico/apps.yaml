@@ -1,0 +1,70 @@
+# Lab 3.05 — three namespaces: front (frontend + stranger), back (api + db), other (outsider).
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-np-front}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-np-back}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-np-other}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: frontend, namespace: lab-np-front, labels: {app: frontend}}
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: stranger, namespace: lab-np-front, labels: {app: stranger}}
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: outsider, namespace: lab-np-other, labels: {app: frontend}}   # same label as frontend, other namespace
+spec:
+  containers: [{name: netshoot, image: "nicolaka/netshoot:v0.13", command: ["sleep", "infinity"]}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api, namespace: lab-np-back}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}}
+    spec:
+      containers: [{name: whoami, image: "traefik/whoami:v1.10.3", ports: [{name: http, containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api, namespace: lab-np-back}
+spec:
+  selector: {app: api}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: db, namespace: lab-np-back}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata: {labels: {app: db}}
+    spec:
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.10.3
+          args: ["--port", "5432"]
+          ports: [{name: pg, containerPort: 5432}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: db, namespace: lab-np-back}
+spec:
+  selector: {app: db}
+  ports: [{name: pg, port: 5432, targetPort: pg}]

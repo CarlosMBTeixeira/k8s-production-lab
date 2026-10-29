@@ -1,0 +1,23 @@
+# Calico GlobalNetworkPolicy (projectcalico.org/v3 — apply with calicoctl).
+# Cluster-scoped, ordered, with Log and Deny actions Kubernetes policy lacks.
+# Blocks (and logs) egress to 1.1.1.1 from lab-np-front.
+#
+# Calico semantics to know: a policy with no matching rule hands over to the
+# next policy in the tier; if no policy decides, an endpoint selected by ANY
+# policy is denied at the end of the tier. So this GNP is safe on
+# lab-np-front (which has its own egress allows) but would cut ALL egress
+# from lab-np-back if you widened the selector to it. Try to predict why
+# before you try it.
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: lab-np-block-1111
+spec:
+  order: 10                                   # lower = first; Kubernetes NetworkPolicies are order 1000
+  namespaceSelector: kubernetes.io/metadata.name == "lab-np-front"
+  types: [Egress]
+  egress:
+    - action: Log
+      destination: {nets: [1.1.1.1/32]}
+    - action: Deny
+      destination: {nets: [1.1.1.1/32]}

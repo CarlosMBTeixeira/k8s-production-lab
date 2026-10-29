@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Lab 3.03 — break/fix injector.
+# Run: WSL host, kind cluster lab-ipvs up (unset KUBECONFIG first)
+# Rebuilds the lab's starting state, injects one fault, prints the ticket.
+# The payload is base64 so a glance at this file does not spoil the
+# challenge. The plaintext and the fix are in solution.md — open it last.
+set -euo pipefail
+export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PHASE_DIR="$(cd "$LAB_DIR/.." && pwd)"
+export WB_DIR="$(cd "$PHASE_DIR/.." && pwd)"
+P='c2V0IC1ldW8gcGlwZWZhaWwKSz0ia3ViZWN0bCAtLWt1YmVjb25maWcgJEhPTUUvLmt1YmUvY29uZmlnIC0tY29udGV4dCBraW5kLWxhYi1pcHZzIgokSyBnZXQgbm9kZXMgPi9kZXYvbnVsbCB8fCB7IGVjaG8gImtpbmQgY2x1c3RlciBsYWItaXB2cyBub3QgcmVhY2hhYmxlIjsgZXhpdCAxOyB9CiRLIGRlbGV0ZSBucyBsYWItbW9kZXMgLS1pZ25vcmUtbm90LWZvdW5kIC0td2FpdD10cnVlID4vZGV2L251bGwKIyAtLS0gdGhlIGZhdWx0IC0tLQokSyAtbiBrdWJlLXN5c3RlbSBnZXQgY20ga3ViZS1wcm94eSAtbyB5YW1sIHwgc2VkIC1FICdzL3NjaGVkdWxlcjogLiovc2NoZWR1bGVyOiBzaC8nIHwgJEsgcmVwbGFjZSAtZiAtID4vZGV2L251bGwKJEsgLW4ga3ViZS1zeXN0ZW0gcm9sbG91dCByZXN0YXJ0IGRzL2t1YmUtcHJveHkgPi9kZXYvbnVsbAokSyAtbiBrdWJlLXN5c3RlbSByb2xsb3V0IHN0YXR1cyBkcy9rdWJlLXByb3h5IC0tdGltZW91dD0xMjBzID4vZGV2L251bGwKJEsgYXBwbHkgLWYgIiRMQUJfRElSL3dlYi55YW1sIiA+L2Rldi9udWxsCiRLIC1uIGxhYi1tb2RlcyByb2xsb3V0IHN0YXR1cyBkZXBsb3kvd2ViIC0tdGltZW91dD0xMjBzID4vZGV2L251bGwKJEsgLW4gbGFiLW1vZGVzIHdhaXQgLS1mb3I9Y29uZGl0aW9uPVJlYWR5IHBvZC9jbGllbnQgLS10aW1lb3V0PTEyMHMgPi9kZXYvbnVsbApjYXQgPDwnVCcKClRJQ0tFVCAgT24gbGFiLWlwdnMsICJ3ZWIiIGhhcyAzIGhlYWx0aHkgcmVwbGljYXMgYnV0IGFsbCB0cmFmZmljIGZyb20gdGhlCiAgICAgICAgZnJvbnRlbmQgbGFuZHMgb24gb25lIG9mIHRoZW07IHRoZSBvdGhlciB0d28gYXJlIGlkbGUuCiAgICAgICAgICBrdWJlY3RsIC1uIGxhYi1tb2RlcyBleGVjIGNsaWVudCAtLSBzaCAtYyAnZm9yIGkgaW4gJChzZXEgMzApOyBkbyBjdXJsIC1zIHdlYiB8IGdyZXAgSG9zdG5hbWU7IGRvbmUnIHwgc29ydCB8IHVuaXEgLWMKICAgICAgICBOb2JvZHkgdG91Y2hlZCB0aGUgd2ViIFNlcnZpY2UuClQK'
+base64 -d <<<"$P" | bash -s -- "$@"

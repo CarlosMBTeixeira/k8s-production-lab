@@ -1,0 +1,28 @@
+# Phase 1 — routed topology (drills 01, 04, 05, 10).
+#
+#   h1 ── r1 ──────── r2 ── h2
+#           \        /
+#            └─ r3 ─┘          r1/r2/r3: FRR · h1/h2: netshoot
+#
+# 172.16.1.0/24 h1–r1 · 10.0.12.0/24 r1–r2 · 172.16.2.0/24 r2–h2
+# 10.0.13.0/24 r1–r3 · 10.0.23.0/24 r3–r2
+# Deploy (netlab-c, root, from your local copy):
+#   containerlab deploy -t routed.clab.yml && bash routed-setup.sh
+# Every link is pinned to MTU 1500 (Containerlab defaults to 9500), so the
+# fragmentation, PMTUD and OSPF-MTU drills see real-Ethernet numbers.
+name: p1r
+topology:
+  defaults:
+    kind: linux
+  nodes:
+    r1: {image: "quay.io/frrouting/frr:10.2.1", binds: [../../phase4-bgp-cloud-lb/lib/daemons:/etc/frr/daemons, ../../phase4-bgp-cloud-lb/lib/vtysh.conf:/etc/frr/vtysh.conf, r1/frr.conf:/etc/frr/frr.conf]}
+    r2: {image: "quay.io/frrouting/frr:10.2.1", binds: [../../phase4-bgp-cloud-lb/lib/daemons:/etc/frr/daemons, ../../phase4-bgp-cloud-lb/lib/vtysh.conf:/etc/frr/vtysh.conf, r2/frr.conf:/etc/frr/frr.conf]}
+    r3: {image: "quay.io/frrouting/frr:10.2.1", binds: [../../phase4-bgp-cloud-lb/lib/daemons:/etc/frr/daemons, ../../phase4-bgp-cloud-lb/lib/vtysh.conf:/etc/frr/vtysh.conf, r3/frr.conf:/etc/frr/frr.conf]}
+    h1: {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+    h2: {image: "nicolaka/netshoot:v0.13", cmd: sleep infinity}
+  links:
+    - {endpoints: ["h1:eth1", "r1:eth1"], mtu: 1500}
+    - {endpoints: ["r1:eth2", "r2:eth1"], mtu: 1500}
+    - {endpoints: ["r2:eth2", "h2:eth1"], mtu: 1500}
+    - {endpoints: ["r1:eth3", "r3:eth1"], mtu: 1500}
+    - {endpoints: ["r3:eth2", "r2:eth3"], mtu: 1500}

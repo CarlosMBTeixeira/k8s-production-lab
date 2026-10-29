@@ -1,0 +1,10 @@
+# Authoritative for lab.local (from a zone file), recursive (forwarding) for the rest.
+lab.local:53 {
+    file /lab.local.zone
+    log
+}
+.:53 {
+    forward . 1.1.1.1 9.9.9.9
+    cache 60
+    log
+}

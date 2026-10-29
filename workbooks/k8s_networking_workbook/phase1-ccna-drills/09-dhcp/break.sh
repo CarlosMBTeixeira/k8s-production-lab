@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Lab 1.09 — break/fix injector.
+# Run: netlab-a, as root:  bash break.sh
+# Rebuilds the lab's starting state, injects one fault, prints the ticket.
+# The payload is base64 so a glance at this file does not spoil the
+# challenge. The plaintext and the fix are in solution.md — open it last.
+set -euo pipefail
+export LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PHASE_DIR="$(cd "$LAB_DIR/.." && pwd)"
+export WB_DIR="$(cd "$PHASE_DIR/.." && pwd)"
+P='c2V0IC1ldW8gcGlwZWZhaWwKYmFzaCAiJExBQl9ESVIvdG9wby5zaCIgdXAgPi9kZXYvbnVsbAojIC0tLSB0aGUgZmF1bHQ6IHNvbWVvbmUncyB0ZXN0IERIQ1Agc2VydmVyIG9uIHRoZSBzYW1lIHNlZ21lbnQgLS0tCmlwIG5ldG5zIGFkZCBkcm9nCmlwIGxpbmsgYWRkIHAtZHJvZyBuZXRucyBkc3cgdHlwZSB2ZXRoIHBlZXIgbmFtZSBldGgwIG5ldG5zIGRyb2cKaXAgLW4gZHN3IGxpbmsgc2V0IHAtZHJvZyBtYXN0ZXIgYnIwIHVwOyBpcCAtbiBkcm9nIGxpbmsgc2V0IGV0aDAgdXA7IGlwIC1uIGRyb2cgbGluayBzZXQgbG8gdXAKaXAgLW4gZHJvZyBhZGRyIGFkZCAxMC44MC4wLjY2LzI0IGRldiBldGgwCmlwIG5ldG5zIGV4ZWMgZHJvZyBkbnNtYXNxIC0taW50ZXJmYWNlPWV0aDAgLS1iaW5kLWludGVyZmFjZXMgLS1wb3J0PTAgLS11c2VyPXJvb3QgLS1ncm91cD1yb290IC0tbm8tcGluZyBcCiAgLS1kaGNwLXJhbmdlPTEwLjgwLjAuMjAwLDEwLjgwLjAuMjIwLDI1NS4yNTUuMjU1LjAsMm0gXAogIC0tZGhjcC1vcHRpb249b3B0aW9uOnJvdXRlciwxMC44MC4wLjY2IFwKICAtLWRoY3AtbGVhc2VmaWxlPS92YXIvdG1wL2Ryb2cubGVhc2VzIC0tcGlkLWZpbGU9L3Zhci90bXAvZHJvZy5waWQKY2F0IDw8VAoKVElDS0VUICBDbGllbnRzIG9uIHRoZSAxMC44MC4wLjAvMjQgc2VnbWVudCBnZXQgYSBsZWFzZSBidXQgY2FuJ3QgcmVhY2gKICAgICAgICB0aGUgb3V0c2lkZSAoMTAuODEuMC4xKS4gSXQgd29ya2VkIHllc3RlcmRheS4KICAgICAgICBSdW4gYSBjbGllbnQgc2V2ZXJhbCB0aW1lczoKICAgICAgICAgIGlwIG5ldG5zIGV4ZWMgZGNsaSBidXN5Ym94IHVkaGNwYyAtaSBldGgwIC1zICRMQUJfRElSL3VkaGNwYy1zY3JpcHQuc2ggLWYgLXEgLW47IGlwIG5ldG5zIGV4ZWMgZGNsaSBwaW5nIC1jMSAtVzEgMTAuODEuMC4xCiAgICAgICAgVGhlIERIQ1Agc2VydmVyICgxMC44MC4wLjIpIGNvbmZpZyBoYXNuJ3QgY2hhbmdlZC4KVAo='
+base64 -d <<<"$P" | bash -s -- "$@"

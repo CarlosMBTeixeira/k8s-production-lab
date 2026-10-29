@@ -1,0 +1,20 @@
+# On-prem resolver (172.20.2.53).
+corp.lab:53 {
+    hosts {
+        172.20.1.10 app.corp.lab
+    }
+    log
+}
+# Conditional forwarder: the private zone lives in the cloud; ask its inbound endpoint.
+privatelink.lab:53 {
+    forward . 10.10.2.53
+    log
+}
+.:53 {
+    # everything else goes "to the internet" — which, for this name, answers the PUBLIC address
+    hosts {
+        203.0.113.10 storage.privatelink.lab
+        fallthrough
+    }
+    log
+}

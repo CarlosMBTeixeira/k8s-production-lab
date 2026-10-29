@@ -1,0 +1,51 @@
+#cloud-config
+# ============================================================================
+# netlab-cloud-init.yaml — toolset for the netlab VMs (netlab-a, netlab-b).
+# Plain Ubuntu 24.04, no Kubernetes. Everything a Phase 1/2 lab needs.
+# Nothing here enables forwarding or changes netfilter: the labs do that,
+# so you see the default state first.
+# ============================================================================
+package_update: true
+packages:
+  # inspection and capture
+  - iproute2
+  - iputils-ping
+  - iputils-arping
+  - iputils-tracepath
+  - traceroute
+  - mtr-tiny
+  - tcpdump
+  - tshark
+  - ethtool
+  - strace
+  # netfilter and load balancing
+  - nftables
+  - iptables
+  - conntrack
+  - ipvsadm
+  # traffic and services
+  - socat
+  - netcat-openbsd
+  - iperf3
+  - curl
+  - openssl
+  - hping3
+  - python3
+  - jq
+  - ipcalc
+  # DNS / DHCP / VRRP drills
+  - bind9-dnsutils
+  - dnsmasq-base
+  - busybox
+  - keepalived
+  # eBPF
+  - bpftrace
+  - linux-tools-common
+runcmd:
+  # bpftool ships per kernel; install the one matching the running kernel.
+  - [bash, -c, "DEBIAN_FRONTEND=noninteractive apt-get install -y linux-tools-$(uname -r) || true"]
+  # sch_netem and a few other modules live in -extra on Ubuntu kernels.
+  - [bash, -c, "DEBIAN_FRONTEND=noninteractive apt-get install -y linux-modules-extra-$(uname -r) || true"]
+  # pwru (Cilium's packet-where-are-you tracer), latest release.
+  - [bash, -c, "V=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/cilium/pwru/releases/latest | sed -E 's#.*/tag/##'); curl -fsSL https://github.com/cilium/pwru/releases/download/$V/pwru-linux-amd64.tar.gz | tar -xz -C /usr/local/bin pwru || true"]
+  - [bash, -c, "echo 'netlab ready' > /var/tmp/netlab-ready"]

@@ -1,0 +1,59 @@
+# Lab 3.06 — client on worker-1, server on worker-2 (cross-node), plus a
+# connection sink on worker-1 for the conntrack exercise.
+apiVersion: v1
+kind: Namespace
+metadata: {name: lab-mtu}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: client, namespace: lab-mtu}
+spec:
+  nodeSelector: {kubernetes.io/hostname: worker-1}
+  containers:
+    - name: netshoot
+      image: nicolaka/netshoot:v0.13
+      command: ["sleep", "infinity"]
+      securityContext: {capabilities: {add: ["NET_ADMIN", "NET_RAW"]}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: server, namespace: lab-mtu, labels: {app: server}}
+spec:
+  nodeSelector: {kubernetes.io/hostname: worker-2}
+  containers:
+    - {name: whoami, image: "traefik/whoami:v1.10.3", ports: [{name: http, containerPort: 80}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: server, namespace: lab-mtu}
+spec:
+  selector: {app: server}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: sink, namespace: lab-mtu, labels: {app: sink}}
+spec:
+  nodeSelector: {kubernetes.io/hostname: worker-1}
+  containers:
+    - name: sink
+      image: nicolaka/netshoot:v0.13
+      command:
+        - python3
+        - -c
+        - |
+          # Hold every connection open, and close it once the client is
+          # gone — a sink that only accumulates hits its 1024-fd limit on
+          # the second ct-exhaust run, crashes (EMFILE) and resets them all.
+          import resource, socket, selectors
+          soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+          resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))   # lab 4.07 holds 4000
+          s = selectors.DefaultSelector()
+          l = socket.socket(); l.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          l.bind(("0.0.0.0", 9000)); l.listen(4096); s.register(l, selectors.EVENT_READ)
+          while True:
+              for k, _ in s.select():
+                  if k.fileobj is l:
+                      s.register(l.accept()[0], selectors.EVENT_READ)
+                  elif not k.fileobj.recv(4096):
+                      s.unregister(k.fileobj); k.fileobj.close()

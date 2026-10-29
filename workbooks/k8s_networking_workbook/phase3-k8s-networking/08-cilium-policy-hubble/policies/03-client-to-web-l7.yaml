@@ -1,0 +1,21 @@
+# client → web on :80, but only GET /api/... (L7, enforced by Cilium's Envoy).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: client-to-web, namespace: lab-cil}
+spec:
+  endpointSelector: {matchLabels: {app: web}}
+  ingress:
+    - fromEndpoints: [{matchLabels: {app: client}}]
+      toPorts:
+        - ports: [{port: "80", protocol: TCP}]
+          rules:
+            http: [{method: GET, path: "/api/.*"}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: client-egress-web, namespace: lab-cil}
+spec:
+  endpointSelector: {matchLabels: {app: client}}
+  egress:
+    - toEndpoints: [{matchLabels: {app: web}}]
+      toPorts: [{ports: [{port: "80", protocol: TCP}]}]

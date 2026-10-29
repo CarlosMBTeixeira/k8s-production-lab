@@ -1,0 +1,7 @@
+# Everything in lab-np-front: no egress unless allowed. Breaks DNS too — on purpose.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny-egress, namespace: lab-np-front}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]

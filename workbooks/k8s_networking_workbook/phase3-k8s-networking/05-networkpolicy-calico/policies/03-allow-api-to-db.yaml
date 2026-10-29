@@ -1,0 +1,10 @@
+# db accepts :5432 only from api (same namespace).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-api-to-db, namespace: lab-np-back}
+spec:
+  podSelector: {matchLabels: {app: db}}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: api}}}]
+      ports: [{protocol: TCP, port: pg}]       # named port: resolved per pod

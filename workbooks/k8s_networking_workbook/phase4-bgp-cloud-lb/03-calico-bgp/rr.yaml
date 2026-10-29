@@ -1,0 +1,8 @@
+# Route reflector topology: every node peers with nodes labelled
+# route-reflector=true (and the mesh is switched off separately).
+apiVersion: projectcalico.org/v3
+kind: BGPPeer
+metadata: {name: peer-with-rr}
+spec:
+  nodeSelector: all()
+  peerSelector: route-reflector == 'true'
