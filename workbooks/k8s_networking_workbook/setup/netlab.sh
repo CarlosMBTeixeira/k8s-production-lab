@@ -80,7 +80,7 @@ write_env() {
     local f="$DIR/netlab.env" n ip
     : > "$f"
     for n in a b c; do
-        ip="$(multipass info "netlab-$n" 2>/dev/null | awk '/IPv4/{print $2; exit}')"
+        ip="$(multipass info "netlab-$n" 2>/dev/null | awk '/IPv4/{print $2; exit}' || true)"
         [ -n "$ip" ] && echo "${n^^}_IP=$ip" >> "$f"
     done
     say "Wrote $f"; cat "$f"
