@@ -23,6 +23,14 @@ v() { docker exec clab-cloud-$1 vtysh -c "$2"; }
 x() { docker exec clab-cloud-$1 sh -c "$2"; }
 ```
 
+`post-deploy.sh` deletes the default route Containerlab gives every router
+via its management `eth0`. Without that, a router with no route sends the
+traffic into the Docker bridge, and `show ip route <anything>` answers with
+`0.0.0.0/0`, which defeats §2.2 and §2.3. The management subnet
+`172.20.20.0/24` also sits inside "on-prem" 172.20.0.0/16. It doesn't
+collide with anything the lab uses, but don't be surprised by it in
+`ip addr`.
+
 ## 2. Hands-on
 
 ### 2.1 Hub-and-spoke transit
@@ -50,7 +58,7 @@ docker exec clab-cloud-hub vtysh -c 'conf t' \
   -c 'router bgp 65100' -c 'address-family ipv4 unicast' \
   -c 'neighbor 10.255.1.2 prefix-list NOT-VPC-B out' -c 'neighbor 10.255.2.2 prefix-list NOT-VPC-A out'
 v hub 'clear bgp * soft out'; sleep 3
-x a1 'curl -s -m3 10.20.1.10 || echo BLOCKED'  # segmented
+x a1 'curl -sS -m3 10.20.1.10 || echo BLOCKED' # curl: (7) Couldn't connect — ra has no route and answers ICMP net-unreachable (traceroute shows !N)
 x a1 'ping -c1 -W1 172.20.1.10'                # on-prem still reachable
 ```
 
@@ -67,8 +75,8 @@ neither.
 
 ```bash
 v rb 'show ip route 10.99.0.0/30'      # connected on rb
-v hub 'show ip route 10.99.0.1'        # unknown to the hub
-v op 'show ip route 10.99.0.1'         # unknown on-prem: nobody can transit through it
+v hub 'show ip route 10.99.0.1'        # no output: FRR prints nothing when no route matches — unknown to the hub
+v op 'show ip route 10.99.0.1'         # no output either: unknown on-prem, nobody can transit through it
 ```
 
 That's why "VPC-A peers with VPC-B and VPC-B peers with on-prem" doesn't
@@ -84,8 +92,8 @@ gets it at an address **inside its own range**: 10.10.3.10.
 ```bash
 x a1 'curl -s -m3 10.10.3.10'                 # storage-b1 — through pe, not through the hub
 x o1 'curl -s -m3 10.10.3.10'                 # on-prem too: 10.10.3.10 is inside VPC-A's aggregate
-x pe 'iptables -t nat -S'                     # what Private Link does, in two rules
-docker logs clab-cloud-b1 2>&1 | tail -3      # the access log: every client is 10.99.0.1 (the endpoint), never a1/o1
+x pe 'iptables -t nat -S | grep -E "DNAT --to-destination 10.20|MASQUERADE"'   # what Private Link does, in two rules (the rest is Docker's embedded DNS)
+docker logs clab-cloud-b1 2>&1 | tail -3      # the endpoint's requests all come from 10.99.0.1; only §2.1's direct curl shows a1 (10.10.1.10)
 ```
 
 The provider sees every consumer as the endpoint's address: Private Link
@@ -143,7 +151,8 @@ the same way.
 | Check | Expected |
 |---|---|
 | §2.1 | a1 → b1 `storage-b1`; o1 traceroute via op, hub, ra |
-| §2.2 | a1 → b1 BLOCKED; a1 → o1 works |
+| §2.2 | a1 → b1 `curl: (7)` + BLOCKED; a1 → o1 works |
+| §2.3 | rb: 10.99.0.0/30 connected; hub and op: no output |
 | §2.4 | a1 and o1 → 10.10.3.10 → `storage-b1` |
 | §2.5 | both resolve `storage.privatelink.lab` to 10.10.3.10; a1 resolves `app.corp.lab` |
 | §2.6 | HIJACKED, then fixed by the inbound prefix-list |

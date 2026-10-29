@@ -3,6 +3,11 @@
 # endpoint's NAT, after `containerlab deploy -t topo.clab.yml`. Root, on netlab-c.
 set -euo pipefail
 x() { docker exec "clab-cloud-$1" sh -c "$2"; }
+# Containerlab gives every node a default route via its mgmt eth0 (172.20.20.1).
+# On the routers it would leak unroutable traffic into the Docker bridge and
+# answer "show ip route <anything>" with 0.0.0.0/0 — delete it, so a missing
+# route really is missing.
+for r in hub ra rb op; do x "$r" 'ip route del default 2>/dev/null || true'; done
 x a1       'ip addr add 10.10.1.10/24 dev eth1; ip route replace default via 10.10.1.1; echo "nameserver 10.10.2.53" > /etc/resolv.conf'
 x o1       'ip addr add 172.20.1.10/24 dev eth1; ip route replace default via 172.20.1.1; echo "nameserver 172.20.2.53" > /etc/resolv.conf'
 x b1       'ip addr add 10.20.1.10/24 dev eth1; ip route replace default via 10.20.1.1'

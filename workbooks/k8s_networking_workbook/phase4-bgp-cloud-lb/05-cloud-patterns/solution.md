@@ -23,14 +23,15 @@ corp.lab:53 {
     log
 }
 COREFILE
-containerlab deploy -t topo.clab.yml >/dev/null
+containerlab deploy -t topo.clab.yml >/dev/null 2>&1
 bash post-deploy.sh >/dev/null
 sleep 5
 cat <<'T'
 
 TICKET  After last night's DNS server migration on-prem, the on-prem app
         (o1) can't reach the storage account through its private endpoint:
-          docker exec clab-cloud-o1 curl -m5 http://storage.privatelink.lab   → timeout
+          docker exec clab-cloud-o1 curl -sS -m5 http://storage.privatelink.lab
+            → curl: (7) Failed to connect to storage.privatelink.lab port 80 … Couldn't connect to server
         From VPC-A (a1) the same URL works. Routing between on-prem and
         VPC-A is fine (o1 pings 10.10.3.10).
 T
@@ -40,7 +41,7 @@ T
 The "migrated" on-prem resolver lost its conditional forwarder for
 `privatelink.lab`. The name now falls through to the `.` zone — "the
 internet" — which answers the **public** address 203.0.113.10. On-prem has
-no path to it. VPC-A's resolver is untouched, so a1 still gets 10.10.3.10.
+no route to it, so op answers ICMP net-unreachable and curl fails at once. VPC-A's resolver is untouched, so a1 still gets 10.10.3.10.
 
 ## Diagnosis path
 
@@ -51,8 +52,8 @@ no path to it. VPC-A's resolver is untouched, so a1 still gets 10.10.3.10.
 | Expected if right | o1: 203.0.113.10; a1: 10.10.3.10. |
 | Tool 2 | `x o1 'dig +short @10.10.2.53 storage.privatelink.lab'` (ask the inbound endpoint directly) and `x o1 'dig +short @172.20.2.53 storage.privatelink.lab'` |
 | Expected if right | inbound endpoint: 10.10.3.10 (the cloud side is fine, and reachable); on-prem resolver: 203.0.113.10. |
-| Tool 3 | `docker logs clab-cloud-dnsc` during the lookup; `cat dnso/Corefile` |
-| Expected if right | no query from 172.20.2.53 reaches dnsc; no `privatelink.lab` stanza in dnso's Corefile. |
+| Tool 3 | `docker logs --since 1m clab-cloud-dnsc \| grep 172.20.2.53` right after o1's lookup; `grep -n 'privatelink.lab:53' dnso/Corefile` |
+| Expected if right | no query from 172.20.2.53 reaches dnsc; no `privatelink.lab:53` zone block in dnso's Corefile (the name still appears in the public `hosts` line — that's the answer o1 gets). |
 | What would have told me sooner | A synthetic check from on-prem that asserts the **private** answer (`dig storage.privatelink.lab` ∈ 10.10.0.0/16), not just "resolves". DNS server migrations are where conditional forwarders get lost. |
 
 ## Fix
