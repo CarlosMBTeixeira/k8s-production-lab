@@ -172,6 +172,8 @@ Solution: [`solution.md`](solution.md).
 for i in 1 2 3; do ip netns del ns$i; done; ip link del br0
 # netlab-c
 for i in 1 2; do ip netns del d$i; done; ip link del brx
+modprobe -r br_netfilter      # §2.4 loaded it; it would outlive the lab (and break §2.4's first ping on a re-run)
+lsmod | grep -c br_netfilter  # 0
 ```
 
 ## 6. What I should be able to explain after this
