@@ -61,21 +61,23 @@ cli openssl s_client -connect api.lab.local:443 -servername api.lab.local -CAfil
 ```
 
 Now break it on purpose, one thing at a time, and **write the exact error
-string** into the cheatsheet next to its cause:
+string** into the cheatsheet next to its cause. Use `-sS`: with `-s` alone
+curl prints nothing on failure, only the exit code (60 for a verification
+failure).
 
 | Try | Command | Error you'll learn to recognise |
 |---|---|---|
-| unknown CA | `cli curl -s https://api.lab.local/` | `unable to get local issuer certificate` |
-| wrong name | `cli curl -s --cacert /pki/root.pem https://lab-tls-srv/` | `no alternative certificate subject name matches target host name` |
-| no SNI / IP | `cli curl -s --cacert /pki/root.pem https://$(docker inspect -f '{{(index .NetworkSettings.Networks "lab-tls").IPAddress}}' lab-tls-srv)/` | same — and with SNI-routed servers (Gateways, lab 3.09) the wrong cert or a handshake failure |
-| old protocol | `cli openssl s_client -connect api.lab.local:443 -tls1_1 </dev/null` | `no protocols available` / `unsupported protocol` |
+| unknown CA | `cli curl -sS https://api.lab.local/` | `curl: (60) SSL certificate problem: unable to get local issuer certificate` |
+| wrong name | `cli curl -sS --cacert /pki/root.pem https://lab-tls-srv/` | `curl: (60) SSL: no alternative certificate subject name matches target host name 'lab-tls-srv'` |
+| no SNI / IP | `cli curl -sS --cacert /pki/root.pem https://$(docker inspect -f '{{(index .NetworkSettings.Networks "lab-tls").IPAddress}}' lab-tls-srv)/` | `… matches target ipv4 address '172.x.x.x'` — and with SNI-routed servers (Gateways, lab 3.09) the wrong cert or a handshake failure |
+| old protocol | `cli openssl s_client -connect api.lab.local:443 -tls1_1 </dev/null` | `…:tls_setup_handshake:no protocols available` — the *client's* OpenSSL 3 refuses TLS 1.1 before sending anything (`unsupported protocol` is what a server answers when it's the one that refuses) |
 | inspect | `cli openssl s_client -connect api.lab.local:443 -servername api.lab.local -showcerts </dev/null \| grep -E '^ [0-9] s:\|i:'` | the chain as served: depth 0 leaf, depth 1 intermediate |
 
 mTLS — the server asks for a client certificate:
 
 ```bash
 srv -cert /pki/leaf.pem -cert_chain /pki/int.pem -Verify 1 -CAfile /pki/ca-bundle.pem
-cli curl -s --cacert /pki/root.pem https://api.lab.local/ ; echo "exit=$?"                 # alert: certificate required
+cli curl -sS --cacert /pki/root.pem https://api.lab.local/ ; echo "exit=$?"                # curl: (56) … tlsv13 alert certificate required — exit 56
 cli curl -s --cacert /pki/root.pem --cert /pki/client.pem --key /pki/client.key https://api.lab.local/ | head -2
 ```
 
@@ -87,8 +89,8 @@ docker rm -f lab-caddy 2>/dev/null; docker run -d --name lab-caddy --network lab
 sleep 3
 cli curl -sk --http1.1 https://quic.lab.local/                     # hello over HTTP/1.1
 cli curl -sk --http2   https://quic.lab.local/                     # hello over HTTP/2.0
-cli curl -skv --http2 -o /dev/null https://quic.lab.local/ 2>&1 | grep -iE 'ALPN|alt-svc'
-cli openssl s_client -connect quic.lab.local:443 -servername quic.lab.local -alpn h2,http/1.1 </dev/null 2>/dev/null | grep -i alpn
+cli curl -skv --http2 -o /dev/null https://quic.lab.local/ 2>&1 | grep -iE 'ALPN|alt-svc'   # curl offers h2,http/1.1 / server accepted h2 / alt-svc: h3=":443"
+cli openssl s_client -connect quic.lab.local:443 -servername quic.lab.local -alpn h2,http/1.1 </dev/null 2>&1 | grep -i alpn   # ALPN protocol: h2 (s_client prints it on stderr)
 ```
 
 ALPN in the ClientHello is how a client and server agree on h2 before any
@@ -98,21 +100,23 @@ which requires h2.
 
 ### 2.4 HTTP/3 (QUIC) — optional
 
-```bash
-docker run --rm curlimages/curl:8.23.0 -V | grep -io 'http3'       # does this curl build speak HTTP/3?
-```
-
-If it prints `HTTP3`:
+Most curl builds can't do HTTP/3: neither netshoot's nor
+`curlimages/curl:8.23.0` lists `HTTP3` under `Features`. Debian trixie's
+packaged curl 8.14 does, so keep one such container around:
 
 ```bash
-docker run --rm --net container:lab-caddy --privileged nicolaka/netshoot:v0.13 tshark -i eth0 -f 'udp port 443' -c 6 &
-docker run --rm --network lab-tls curlimages/curl:8.23.0 -sk --http3-only https://quic.lab.local/    # hello over HTTP/3.0
-wait
+docker run -d --name lab-h3 --network lab-tls debian:trixie-slim sleep infinity
+docker exec -e DEBIAN_FRONTEND=noninteractive lab-h3 sh -c 'apt-get -qq update && apt-get -qq install -y curl >/dev/null'
+docker exec lab-h3 curl -V | grep -o HTTP3                                        # HTTP3
+docker run --rm --net container:lab-caddy --privileged nicolaka/netshoot:v0.13 timeout 20 tshark -i eth0 -f 'udp port 443' -c 6 &
+sleep 4; docker exec lab-h3 curl -sk --http3-only https://quic.lab.local/          # hello over HTTP/3.0
+wait                                                                              # QUIC Initial ×2, Initial+ACK, Handshake, Protected Payload
 ```
 
-If not, stop at what you can see without a client: the `alt-svc: h3=":443"`
-header from 2.3 (servers advertise HTTP/3 over HTTP/2) and Caddy listening
-on UDP 443 (`docker run --rm --net container:lab-caddy nicolaka/netshoot:v0.13 ss -ulpn`).
+Without an HTTP/3 client you can still see the two halves: the
+`alt-svc: h3=":443"` header from 2.3 (servers advertise HTTP/3 over HTTP/2)
+and Caddy listening on UDP 443
+(`docker run --rm --net container:lab-caddy nicolaka/netshoot:v0.13 ss -ulpn`).
 QUIC is TLS 1.3 inside UDP: firewalls that only allow TCP/443 make clients
 fall back to h2 — slower to fail than you'd think, and invisible in TCP captures.
 
@@ -123,6 +127,7 @@ fall back to h2 — slower to fail than you'd think, and invisible in TCP captur
 | §2.1 | 9 separate curls spread; one keep-alive connection → one pod; through Envoy → spread |
 | §2.2 | each error string reproduced and matched to its cause; mTLS fails without, works with the client cert |
 | §2.3 | `HTTP/1.1` vs `HTTP/2.0`; `ALPN: server accepted h2`; `alt-svc` advertises h3 |
+| §2.4 | `hello over HTTP/3.0`; tshark shows QUIC Initial/Handshake on UDP 443 |
 
 ## 4. Break/fix
 
@@ -151,7 +156,7 @@ Solution: [`solution.md`](solution.md).
 ## 5. Cleanup
 
 ```bash
-docker rm -f lab-tls-srv lab-caddy 2>/dev/null; docker network rm lab-tls
+docker rm -f lab-tls-srv lab-caddy lab-h3 2>/dev/null; docker network rm lab-tls
 kubectl delete ns lab-l7
 rm -rf .pki
 ```

@@ -18,8 +18,8 @@ cat <<T
 TICKET  The API vendor rotated the certificate on https://api.lab.local last
         night. Our clients now fail:
           docker run --rm --network lab-tls -v $PKI:/pki:ro nicolaka/netshoot:v0.13 \\
-            curl -s --cacert /pki/root.pem https://api.lab.local/
-          → "SSL certificate problem: unable to get local issuer certificate"
+            curl -sS --cacert /pki/root.pem https://api.lab.local/
+          → curl: (60) SSL certificate problem: unable to get local issuer certificate
         The vendor says: "The certificate is valid, signed by your CA, and our
         browser shows a padlock." Our trust store (root.pem) hasn't changed.
 T
@@ -50,9 +50,15 @@ Serve the chain (leaf + intermediate):
 
 ```bash
 srv -cert /pki/leaf.pem -cert_chain /pki/int.pem
-# or, equivalently: srv -cert /pki/fullchain.pem
+cli openssl s_client -connect api.lab.local:443 -servername api.lab.local -showcerts </dev/null 2>/dev/null | grep -E '^ [0-9] s:'   # depth 0 and 1 now
 cli curl -s --cacert /pki/root.pem https://api.lab.local/ | head -1
 ```
+
+`srv -cert /pki/fullchain.pem` is **not** equivalent: `openssl s_server`
+reads only the first certificate from `-cert` and still serves the leaf
+alone. Check `-showcerts`, don't assume. nginx (`ssl_certificate`), Envoy,
+HAProxy and a Kubernetes `tls.crt` do take leaf + intermediates in one PEM,
+leaf first.
 
 In Kubernetes terms: the Secret's `tls.crt` must hold the full chain
 (cert-manager writes it that way; hand-made secrets often don't).

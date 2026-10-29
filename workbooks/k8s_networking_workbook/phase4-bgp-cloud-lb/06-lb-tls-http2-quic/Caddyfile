@@ -2,5 +2,8 @@
 # with a certificate from its own internal CA.
 https://quic.lab.local {
     tls internal
-    respond "hello over {http.request.proto}\n"
+    # Backtick string with a real newline: Caddyfile double quotes don't
+    # interpret \n, so "…\n" would print a literal backslash-n.
+    respond `hello over {http.request.proto}
+`
 }
