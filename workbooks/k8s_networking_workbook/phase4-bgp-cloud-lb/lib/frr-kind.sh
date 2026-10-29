@@ -44,11 +44,22 @@ up() {
     local cluster=${1:?usage: up <kind-cluster> <frr.conf.tpl>} tpl=${2:?usage: up <kind-cluster> <frr.conf.tpl>}
     kind get nodes --name "$cluster" >/dev/null
     docker rm -f lab-frr lab-client >/dev/null 2>&1 || true
-    docker network inspect lab-ext >/dev/null 2>&1 || docker network create lab-ext --subnet "$EXT_NET" >/dev/null
+    # nat-unprotected: Docker >= 28 drops packets for a container IP that
+    # arrive from any other bridge (raw PREROUTING "-d <ip> ! -i br-lab-ext
+    # -j DROP"). With br_netfilter loaded that also hits *bridged* frames, so
+    # a node's reply to lab-client (kind bridge -> lab-frr's MAC) is dropped
+    # on the host before lab-frr can route it. Recreated every time so an old
+    # network without the option doesn't survive.
+    docker network rm lab-ext >/dev/null 2>&1 || true
+    docker network create lab-ext --subnet "$EXT_NET" \
+        -o com.docker.network.bridge.gateway_mode_ipv4=nat-unprotected >/dev/null
 
     export KIND_NET; KIND_NET=$(kind_net)
     docker run -d --name lab-frr --privileged --network kind \
-        --sysctl net.ipv4.ip_forward=1 "$FRR_IMAGE" >/dev/null
+        --sysctl net.ipv4.ip_forward=1 \
+        --sysctl net.ipv4.fib_multipath_hash_policy=1 "$FRR_IMAGE" >/dev/null
+    # hash_policy=1: ECMP on the 5-tuple. The default (0, L3 only) sends every
+    # flow from the single lab-client to the same node.
     docker network connect --ip "$EXT_FRR" lab-ext lab-frr
     export FRR_IP; FRR_IP=$(ip_on lab-frr kind)
 
