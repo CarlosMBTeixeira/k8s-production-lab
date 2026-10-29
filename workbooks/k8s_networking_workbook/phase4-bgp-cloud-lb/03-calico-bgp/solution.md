@@ -42,7 +42,7 @@ cat <<'T'
 
 TICKET  "Migrated lab-calico from full mesh to route reflectors, as per the
         scaling plan." Since then:
-          kubectl -n lab-bgp exec client-w2 -- curl -m3 http://<server-cp pod IP>/   → timeout
+          kubectl -n lab-bgp exec client-w2 -- curl -sS -m3 http://<server-cp pod IP>/   → curl: (28) Connection timed out
         Pods on lab-calico-worker still talk to everyone. All BGP sessions
         are Established. Keep the mesh disabled — that's the point of the change.
 T
@@ -54,8 +54,11 @@ The mesh is off and every node peers with the node labelled
 It's a plain iBGP peer, and iBGP's split-horizon rule says a route learned
 from one iBGP peer is not re-advertised to another. So worker2 never learns
 the control-plane's block (and vice versa); both still learn the "RR"
-node's own block directly. FRR has everything, but the routes it sends back
-carry AS 64512 in the path and the nodes drop them (eBGP loop prevention).
+node's own block directly. FRR has everything and lists those blocks as
+advertised to worker2, but they carry AS 64512 in the path, so BIRD imports
+none of them (`bird lab-calico-worker2 show protocols all Global_<FRR_IP>`:
+`0 imported`). eBGP loop prevention stops the fabric from papering over the
+broken iBGP design.
 
 ## Diagnosis path
 
