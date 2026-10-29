@@ -18,7 +18,7 @@ cat <<T
 TICKET  The nodes of lab-cilium were "recycled" (same names, fresh config).
         Since then the LoadBalancer of lab-cbgp/web (${LB}) is unreachable
         from outside:
-          docker exec lab-client curl -m3 http://${LB}/   → timeout
+          docker exec lab-client curl -sS -m3 http://${LB}/   → curl: (28) Connection timed out
         lab-frr: "show bgp summary" lists no cluster neighbors. Cilium is healthy.
 T
 ```
@@ -35,12 +35,12 @@ The LB IP is still allocated and the Service looks healthy.
 |---|---|
 | Hypothesis | No neighbors on FRR at all → the cluster isn't trying; BGP is configured for nobody. |
 | Tool | `cilium bgp peers` |
-| Expected if right | empty (or "no BGP peers"), on every node. |
+| Expected if right | only the header line: no node has a peer. |
 | Tool 2 | `kubectl get ciliumbgpnodeconfigs` and `kubectl get ciliumbgpclusterconfig lab -o jsonpath='{.spec.nodeSelector}'` |
-| Expected if right | no NodeConfigs; selector `bgp=on`. |
+| Expected if right | `No resources found`; selector `{"matchLabels":{"bgp":"on"}}`. |
 | Tool 3 | `kubectl get nodes -L bgp` |
 | Expected if right | the `BGP` column empty. |
-| What would have told me sooner | Node labels that carry configuration belong in the node pool / machine template, not in a one-off `kubectl label`. An alert on "fabric sees fewer cluster BGP neighbors than there are nodes". |
+| What would have told me sooner | The ClusterConfig says it outright: `kubectl get ciliumbgpclusterconfig lab -o json \| jq -r '.status.conditions[] \| "\(.type) \(.status) \(.message)"'` → `cilium.io/NoMatchingNode True No node matches spec.nodeSelector`. Alert on that condition. Node labels that carry configuration belong in the node pool / machine template, not in a one-off `kubectl label`. An alert on "fabric sees fewer cluster BGP neighbors than there are nodes". |
 
 ## Fix
 

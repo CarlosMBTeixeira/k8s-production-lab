@@ -1,9 +1,9 @@
-# Cilium BGP control plane, "BGPv2" API. apiVersion is cilium.io/v2alpha1 on
-# Cilium 1.16-1.17; newer releases also serve cilium.io/v2 — check with
-#   kubectl api-resources | grep -i ciliumbgp
+# Cilium BGP control plane, "BGPv2" API, cilium.io/v2 (stable since 1.18).
+# Cilium 1.20.1 still serves v2alpha1 as well; 1.16-1.17 serve only v2alpha1.
+# Check with:  kubectl api-resources | grep -i ciliumbgp
 # Nodes labelled bgp=on peer with lab-frr as AS 64512 and advertise their
 # PodCIDR plus LoadBalancer IPs of Services labelled bgp-advertise=true.
-apiVersion: cilium.io/v2alpha1
+apiVersion: cilium.io/v2
 kind: CiliumBGPClusterConfig
 metadata: {name: lab}
 spec:
@@ -17,7 +17,7 @@ spec:
           peerAddress: ${FRR_IP}
           peerConfigRef: {name: lab-frr}
 ---
-apiVersion: cilium.io/v2alpha1
+apiVersion: cilium.io/v2
 kind: CiliumBGPPeerConfig
 metadata: {name: lab-frr}
 spec:
@@ -28,7 +28,7 @@ spec:
       advertisements:
         matchLabels: {advertise: bgp}
 ---
-apiVersion: cilium.io/v2alpha1
+apiVersion: cilium.io/v2
 kind: CiliumBGPAdvertisement
 metadata:
   name: lab
@@ -40,7 +40,7 @@ spec:
       service: {addresses: [LoadBalancerIP]}
       selector: {matchLabels: {bgp-advertise: "true"}}
 ---
-apiVersion: cilium.io/v2alpha1
+apiVersion: cilium.io/v2
 kind: CiliumLoadBalancerIPPool
 metadata: {name: bgp-pool}
 spec:

@@ -21,8 +21,8 @@ cilium install \
   --set ipam.mode=kubernetes \
   --set routingMode=native --set autoDirectNodeRoutes=true --set ipv4NativeRoutingCIDR=10.244.0.0/16 \
   --set bgpControlPlane.enabled=true
-cilium status --wait
-kubectl api-resources | grep -i ciliumbgp          # which API version this release serves (edit bgp.yaml.tpl if v2)
+cilium status --wait                               # may return with "pods not ready" — run `cilium status` again a minute later
+kubectl api-resources | grep -i ciliumbgp          # cilium.io/v2 — what bgp.yaml.tpl uses (1.20 also still serves v2alpha1)
 ```
 
 `routingMode=native` + `autoDirectNodeRoutes`: no VXLAN; each node gets
@@ -47,6 +47,12 @@ docker exec lab-frr vtysh -c 'show bgp ipv4 unicast'       # 10.244.x.0/24 per n
 docker exec lab-client curl -s -m3 http://$LB/ | grep Hostname
 ```
 
+Unlike MetalLB in 4.02, Cilium also advertises the LB IP from the control
+plane, so you get three paths, not two. Each node advertises only its own
+PodCIDR and Service routes; there is no mesh re-exporting other nodes'
+routes as in 4.03. `Received 4` per node is FRR sending the whole table
+back; the nodes drop it on their own AS.
+
 ### 2.2 The object model
 
 | Object | Answers |
@@ -65,21 +71,50 @@ where Cilium BGP configs usually break.
 
 ```bash
 kubectl -n lab-cbgp patch svc web -p '{"spec":{"externalTrafficPolicy":"Local"}}'
-sleep 5; docker exec lab-frr vtysh -c "show bgp ipv4 unicast $LB/32"   # only nodes with a web pod
+sleep 5; docker exec lab-frr vtysh -c "show bgp ipv4 unicast $LB/32" | grep from   # only nodes with a web pod
 kubectl -n lab-cbgp get pods -o wide
-( while true; do docker exec lab-client curl -s -m1 http://$LB/ >/dev/null && echo -n . || echo -n X; sleep 0.5; done ) &
-sleep 3; docker pause lab-cilium-worker; sleep 20; docker unpause lab-cilium-worker; kill %1; echo
+docker exec lab-client sh -c "for i in \$(seq 20); do curl -s -m1 -o /dev/null -w '%{http_code} ' http://$LB/; done"; echo   # 20 × 200
 ```
 
-With the 9 s hold timer from the PeerConfig, compare the outage to 4.02's
-90 s default. Timers are a per-peer knob here.
+Unlike 4.03, nothing re-exports here: the /32 really comes only from the
+nodes with an endpoint, and every request works.
+
+Now a node with a web pod goes silent. One line per second shows the BGP
+paths on lab-frr and how many of 4 requests worked:
+
+```bash
+tl() { T0=$(date +%s); for i in $(seq $1); do
+  P=$(docker exec lab-frr vtysh -c "show bgp ipv4 unicast $LB/32" | grep -o '[0-9] available')
+  OK=0; for j in 1 2 3 4; do docker exec lab-client curl -s -m1 http://$LB/ >/dev/null && OK=$((OK+1)); done
+  echo "$(( $(date +%s)-T0 ))s paths=$P ok=$OK/4"; done | uniq -f1 -c; }
+docker pause lab-cilium-worker; tl 40; docker unpause lab-cilium-worker
+```
+
+Measured: the path is withdrawn at ~7 s (hold time 9 s, set in the
+PeerConfig), and every request works after that. Under `Local`, the
+outage is the hold time, because each remaining path leads to a node with
+a live local endpoint.
+
+Repeat under `Cluster`:
+
+```bash
+sleep 20; kubectl -n lab-cbgp patch svc web -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'; sleep 15
+docker pause lab-cilium-worker; tl 70; docker unpause lab-cilium-worker
+```
+
+Measured: the path is withdrawn at ~12 s, but failures continue until
+~49 s. Each surviving node still load-balances to the pod on the paused
+node until Kubernetes stops listing it as an endpoint (the node
+controller's 50 s grace period), as in 4.02 §2.5. BGP timers and BFD only
+shorten the first part. `Local` avoids the second part: a node never sends
+the traffic to another node's pod.
 
 ## 3. Verification
 
 | Check | Expected |
 |---|---|
 | §2.1 | `cilium bgp peers`: every node Established with `FRR_IP`; FRR has 3 PodCIDRs and `$LB/32`; lab-client gets an answer |
-| §2.3 | Local → paths only from nodes with endpoints; outage ≈ hold time (~9 s) |
+| §2.3 | Local → 2 paths, 20/20; pause under Local → withdrawn at ≤ 9 s, then all OK; under Cluster → withdrawn ~12 s, failures until ~50 s (endpoints) |
 
 ## 4. Break/fix
 
@@ -117,4 +152,4 @@ kind delete cluster --name lab-cilium
 
 - Cilium's BGP control plane: ClusterConfig (who/ASN/peers) → PeerConfig (how, which families/advertisements) → Advertisement (what), with per-node state in CiliumBGPNodeConfig; LB IPAM allocates, BGP announces.
 - Native routing with auto direct node routes removes the overlay when nodes share an L2; BGP extends that to routed fabrics by advertising PodCIDRs.
-- Hold timers set failover time on a silent node failure; tune them per peer (or use BFD where supported).
+- Hold timers set failover time on a silent node failure; tune them per peer (or use BFD where supported) — and with `Cluster` policy the dead node's pods stay endpoints for ~50 s anyway; `Local` makes the BGP withdrawal the whole outage.
