@@ -120,6 +120,16 @@ originated. Any node that re-exports with next-hop-self breaks it again.
 That includes a full mesh peering with the fabric: check the next hops,
 not just the prefix.
 
+`keepOriginalNextHop` fixes the next hops, not **who advertises** them:
+FRR still holds the /32 from every node (`show bgp ipv4 unicast
+10.202.0.10/32` → 6 paths for 2 next hops). That matters when a node dies.
+Measured with `docker pause lab-calico-worker2`: FRR drops its own session
+after the 9 s hold, but the copies the other nodes re-export keep worker2
+in the ECMP set until *their* mesh session times out (BIRD's 240 s hold) —
+**216 s**, 44 % of requests failing. `keepOriginalNextHop` is also
+deprecated in favour of `nextHopMode: Keep`. The capstone (4.08) makes you
+find the fix that holds under failure.
+
 ### 2.4 Route reflectors instead of a full mesh
 
 A full mesh is N×(N−1)/2 sessions — fine at 3 nodes, not at 300. Make
